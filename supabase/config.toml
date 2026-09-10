@@ -1,0 +1,41 @@
+project_id = "surfer-live"
+
+[api]
+enabled = true
+port = 54321
+# `app` stays off this list on purpose: RLS helpers must not be callable over HTTP.
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://localhost:3000/auth/callback"]
+jwt_expiry = 3600
+enable_refresh_token_rotation = true
+refresh_token_reuse_interval = 10
+# Accounts are created by an administrator or through an invite link only.
+enable_signup = false
+enable_anonymous_sign_ins = false
+
+[auth.email]
+enable_signup = false
+enable_confirmations = true
+secure_password_change = true
+
+[auth.sessions]
+timebox = "24h"
+inactivity_timeout = "8h"
+
+[inbucket]
+enabled = true
+port = 54324
