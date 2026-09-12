@@ -17,8 +17,8 @@ export default async function AdminDeskPage() {
   const club = await getClubSettings()
 
   // Today at the club, not on the server clock.
-  const { from, to } = dayRangeInZone(todayInZone(club.timezone), club.timezone)
-  const today = new Date().toISOString().slice(0, 10)
+  const today = todayInZone(club.timezone)
+  const { from, to } = dayRangeInZone(today, club.timezone)
 
   const [pendingRes, todaySlots, membersRes, rentalsRes, reviewsRes, auditRes, conditions] =
     await Promise.all([

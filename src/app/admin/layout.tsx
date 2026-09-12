@@ -20,15 +20,15 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   // The desk opens only for a club that has chosen and paid for a plan and
   // connected its payout account, and for an administrator who has accepted
   // the platform's documents. The onboarding routes sit outside this layout.
-  const [onboarding, { data: accepted }] = await Promise.all([
+  const supabase = await createUserClient()
+  const [onboarding, { data: accepted }, club] = await Promise.all([
     getClubOnboarding(tenant.id),
-    (await createUserClient()).from('legal_acceptances').select('document_key, version').eq('user_id', user.id),
+    supabase.from('legal_acceptances').select('document_key, version').eq('user_id', user.id),
+    getClubSettings(),
   ])
   if (outstandingLegal('admin', accepted ?? []).length > 0) redirect('/onboarding/legal')
   if (onboarding.step === 'plan') redirect('/onboarding/plan')
   if (onboarding.step === 'payouts') redirect('/onboarding/payouts')
-
-  const club = await getClubSettings()
 
   return (
     <AdminShell clubName={club.club_name} userName={user.profile.full_name}>

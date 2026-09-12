@@ -1,5 +1,6 @@
 'use client'
 
+import { AdmLabel as Label } from '@/components/admin/pieces'
 import { useRouter } from 'next/navigation'
 import {
   closeSupportConversationAction,
@@ -9,14 +10,6 @@ import {
 } from '@/lib/actions/support'
 import { ActionForm, SubmitButton } from '@/components/ui/form'
 import { adminButton } from '@/components/ui/button-class'
-
-function Label({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="a-label mb-1.5 block" style={{ color: 'var(--color-adm-ink-2)' }}>
-      {children}
-    </span>
-  )
-}
 
 export function OpenForm() {
   const router = useRouter()

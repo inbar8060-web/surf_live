@@ -177,7 +177,8 @@ export function describeDbFailure(error: unknown, fallback = 'Something went wro
   if (err.code && TRIGGER_CODES.has(err.code) && message) {
     if (!isNative(message)) {
       // our own trigger, written for people — already says what and where
-      return { error: message.replace(/^.*?:\s*/, '').slice(0, 300) }
+      // strip only a server-added "ERROR:" prefix — the message's own colons are ours
+      return { error: message.replace(/^ERROR:\s*/i, '').slice(0, 300) }
     }
 
     if (err.code === '23514') {

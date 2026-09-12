@@ -37,9 +37,35 @@ export function clubUrl(slug: string, path = '/'): string {
 }
 
 export function platformUrl(path = '/'): string {
-  const { NEXT_PUBLIC_PLATFORM_DOMAIN } = publicEnv
-  const protocol = NEXT_PUBLIC_PLATFORM_DOMAIN.startsWith('localhost') ? 'http' : 'https'
-  return `${protocol}://${PLATFORM_SLUG}.${NEXT_PUBLIC_PLATFORM_DOMAIN}${path}`
+  return clubUrl(PLATFORM_SLUG, path)
+}
+
+/**
+ * An absolute URL on the club this request is for — the only correct base
+ * for anything a third party will send the browser back to (invite links,
+ * checkout return pages). Throws off a club address: a caller there has no
+ * club to build a link for, and a link on the apex would 404 at the proxy.
+ */
+export async function requestClubUrl(path = '/'): Promise<string> {
+  const club = await getRequestClub()
+  if (!club) throw new Error('requestClubUrl() called outside a club address')
+  return clubUrl(club.slug, path)
+}
+
+/**
+ * The address of the club a signed-in person belongs to, or null when that
+ * club is no longer live (archived, or gone). Callers decide what to do with
+ * null; sending the person back to the same dead address is never it.
+ */
+export async function ownClubUrl(clubId: string | null, path = '/'): Promise<string | null> {
+  if (!clubId) return null
+  const { data } = await createAdminClient()
+    .from('clubs')
+    .select('slug')
+    .eq('id', clubId)
+    .in('status', ['active', 'suspended'])
+    .maybeSingle()
+  return data ? clubUrl(data.slug, path) : null
 }
 
 /**

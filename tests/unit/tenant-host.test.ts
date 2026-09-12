@@ -39,3 +39,10 @@ test('slugify turns a club name into a usable subdomain', () => {
   assert.equal(slugify('Admin'), 'admin-club')
   assert.ok(slugify('x'.repeat(80)).length <= 40)
 })
+
+test('a bare local or LAN address can stand in for one club in development', () => {
+  assert.deepEqual(parseHost('192.168.1.20:3000', 'localhost:3000', { devClubSlug: 'surfer-live' }), { kind: 'club', slug: 'surfer-live' })
+  assert.deepEqual(parseHost('localhost:3000', 'localhost:3000', { devClubSlug: 'surfer-live' }), { kind: 'club', slug: 'surfer-live' })
+  assert.deepEqual(parseHost('192.168.1.20:3000', 'localhost:3000'), { kind: 'apex' })
+  assert.deepEqual(parseHost('admin.localhost:3000', 'localhost:3000', { devClubSlug: 'surfer-live' }), { kind: 'platform' })
+})

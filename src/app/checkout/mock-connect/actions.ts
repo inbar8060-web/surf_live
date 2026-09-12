@@ -1,8 +1,8 @@
 'use server'
 
 import { redirect } from 'next/navigation'
-import { publicEnv, serverEnv } from '@/lib/env'
-import { signMockPayload } from '@/lib/payments/mock'
+import { serverEnv } from '@/lib/env'
+import { postMockWebhook } from '@/lib/payments/mock'
 import { assertRole } from '@/lib/auth/session'
 import { createUserClient } from '@/lib/supabase/server'
 import { assertSameOrigin, fail, type ActionResult } from '@/lib/actions/result'
@@ -34,12 +34,7 @@ export async function completeMockConnectAction(_prev: ActionResult<null> | null
     country: 'IL',
     currency: 'ILS',
   })
-  const response = await fetch(`${publicEnv.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '')}/api/webhooks/payments`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-payment-signature': signMockPayload(payload) },
-    body: payload,
-    cache: 'no-store',
-  })
+  const response = await postMockWebhook(payload)
   if (!response.ok) return fail('The simulated onboarding could not be confirmed.')
 
   redirect(safeInternalPath(str(formData, 'next'), '/onboarding/payouts?status=returned'))

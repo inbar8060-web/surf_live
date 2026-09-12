@@ -2,7 +2,7 @@ import 'server-only'
 
 import { redirect } from 'next/navigation'
 import { requireRole, homeFor, type SessionUser } from '@/lib/auth/session'
-import { getRequestClub, clubUrl, platformUrl, type TenantClub } from '@/lib/tenant'
+import { getRequestClub, ownClubUrl, platformUrl, type TenantClub } from '@/lib/tenant'
 import type { AppRole } from '@/lib/db/types'
 
 /**
@@ -24,13 +24,12 @@ export async function requireClubRole(
 
   if (user.profile.role === 'super_admin') redirect(platformUrl('/platform'))
 
-  if (!club) {
-    // a club address that names no active club, or the apex — send them home
-    redirect(user.profile.club_id ? await ownClubUrl(user) : '/login')
-  }
-
-  if (user.profile.club_id !== club.id) {
-    redirect(await ownClubUrl(user))
+  if (!club || user.profile.club_id !== club.id) {
+    // The address names no live club, or not this person's. Send them to
+    // their own club — and if that club is no longer live, to a page that
+    // says so, never back to the address that just refused them.
+    const home = await ownClubUrl(user.profile.club_id, homeFor(user.profile.role))
+    redirect(home ?? '/closed')
   }
 
   if (club.status === 'suspended' && user.profile.role !== 'admin') {
@@ -40,12 +39,3 @@ export async function requireClubRole(
   return { user, club }
 }
 
-async function ownClubUrl(user: SessionUser): Promise<string> {
-  const { createAdminClient } = await import('@/lib/supabase/admin')
-  const { data } = await createAdminClient()
-    .from('clubs')
-    .select('slug')
-    .eq('id', user.profile.club_id ?? '')
-    .maybeSingle()
-  return data ? clubUrl(data.slug, homeFor(user.profile.role)) : '/login'
-}

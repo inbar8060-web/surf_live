@@ -59,8 +59,12 @@ export async function recordAudit(input: AuditInput): Promise<void> {
       clubId = data?.club_id ?? null
     }
     if (!clubId) {
-      // the platform operator's actions go to their own trail; a club event
-      // with no club is a bug worth hearing about, not a row worth writing
+      // The platform operator has no club: their events go to the platform's
+      // own trail. A club event with no actor and no club is a bug.
+      if (input.actorRole === 'super_admin' || input.action.startsWith('auth.')) {
+        await recordPlatformAudit({ actorId: input.actorId, action: input.action, clubId: null, detail: input.after })
+        return
+      }
       console.error('[audit] no club for event', input.action)
       return
     }
@@ -81,5 +85,37 @@ export async function recordAudit(input: AuditInput): Promise<void> {
       })
   } catch (error) {
     console.error('[audit] failed to record entry', input.action, error)
+  }
+}
+
+export interface PlatformAuditInput {
+  actorId: string | null
+  action: string
+  clubId: string | null
+  detail?: unknown
+}
+
+/**
+ * The platform's own trail: what the operator did, and what the payment
+ * service reported about a club. Scrubbed like the club trail, with the
+ * caller's address when there is a request. Never throws.
+ */
+export async function recordPlatformAudit(input: PlatformAuditInput): Promise<void> {
+  try {
+    let ip: string | null = null
+    try {
+      ip = clientIp(await headers())
+    } catch {
+      // no request context (a webhook, a script) — fine
+    }
+    await createAdminClient().from('platform_audit_log').insert({
+      actor_id: input.actorId,
+      action: input.action,
+      club_id: input.clubId,
+      detail: (scrub(input.detail) as Record<string, unknown> | null) ?? null,
+      ip,
+    })
+  } catch (error) {
+    console.error('[platform-audit] failed to record', input.action, error)
   }
 }

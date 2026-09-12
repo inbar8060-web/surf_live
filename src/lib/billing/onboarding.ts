@@ -27,14 +27,13 @@ export interface ClubOnboarding {
 
 export const getClubOnboarding = cache(async (clubId: string): Promise<ClubOnboarding> => {
   const db = createAdminClient()
-  const [{ data: subscription }, { data: account }] = await Promise.all([
+  const [{ data: subscription }, { data: account }, { data: plans }] = await Promise.all([
     db.from('club_subscriptions').select('*').eq('club_id', clubId).maybeSingle(),
     db.from('club_payment_accounts').select('*').eq('club_id', clubId).maybeSingle(),
+    db.from('plans').select('*'),
   ])
 
-  const plan = subscription
-    ? (await db.from('plans').select('*').eq('key', subscription.plan_key).maybeSingle()).data
-    : null
+  const plan = subscription ? (plans ?? []).find((p) => p.key === subscription.plan_key) ?? null : null
 
   const paid = subscription?.status === 'active' || subscription?.status === 'past_due'
   const connected = account?.status === 'active'

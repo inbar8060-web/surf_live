@@ -1,8 +1,8 @@
 'use server'
 
 import { redirect } from 'next/navigation'
-import { publicEnv, serverEnv } from '@/lib/env'
-import { signMockPayload } from '@/lib/payments/mock'
+import { serverEnv } from '@/lib/env'
+import { postMockWebhook } from '@/lib/payments/mock'
 import { assertRole } from '@/lib/auth/session'
 import { createUserClient } from '@/lib/supabase/server'
 import { assertSameOrigin, fail, type ActionResult } from '@/lib/actions/result'
@@ -50,18 +50,7 @@ export async function completeMockPaymentAction(
     currency: str(formData, 'currency'),
   })
 
-  const response = await fetch(
-    `${publicEnv.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '')}/api/webhooks/payments`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-payment-signature': signMockPayload(payload),
-      },
-      body: payload,
-      cache: 'no-store',
-    },
-  )
+  const response = await postMockWebhook(payload)
 
   if (!response.ok) return fail('The simulated payment could not be confirmed.')
 
@@ -95,17 +84,9 @@ export async function completeMockSubscriptionAction(
     subscriptionId,
     planKey: str(formData, 'planKey') || own.plan_key,
   })
-  const response = await postSignedWebhook(payload)
+  const response = await postMockWebhook(payload)
   if (!response.ok) return fail('The simulated subscription could not be confirmed.')
 
   redirect(safeInternalPath(str(formData, 'next'), '/onboarding/payouts?plan=paid'))
 }
 
-async function postSignedWebhook(payload: string): Promise<Response> {
-  return fetch(`${publicEnv.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '')}/api/webhooks/payments`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-payment-signature': signMockPayload(payload) },
-    body: payload,
-    cache: 'no-store',
-  })
-}

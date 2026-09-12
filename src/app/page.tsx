@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { Clock, Globe, MapPin, Phone } from 'lucide-react'
 import { getSessionUser, homeFor } from '@/lib/auth/session'
-import { getRequestArea, getRequestClub, platformUrl } from '@/lib/tenant'
+import { getRequestArea, getRequestClub, ownClubUrl, platformUrl } from '@/lib/tenant'
 import { getPublicClub } from '@/lib/db/queries'
 import { getSpotConditions } from '@/lib/surf/conditions'
 import { ConditionsPanel } from '@/components/conditions-panel'
@@ -23,7 +23,14 @@ export const revalidate = 900
  */
 export default async function LandingPage() {
   const [user, area] = await Promise.all([getSessionUser(), getRequestArea()])
-  if (user) redirect(homeFor(user.profile.role))
+  if (user) {
+    // Home is an area, and areas live on their own addresses: the operator on
+    // admin.<domain>, a club user on their club's. On any other address a
+    // relative redirect would meet the proxy's 404, so build the full one.
+    if (user.profile.role === 'super_admin') redirect(area === 'platform' ? '/platform' : platformUrl('/platform'))
+    if (area === 'club') redirect(homeFor(user.profile.role))
+    redirect((await ownClubUrl(user.profile.club_id, homeFor(user.profile.role))) ?? '/closed')
+  }
 
   if (area === 'platform') redirect('/login')
   if (area === 'unknown') notFound()

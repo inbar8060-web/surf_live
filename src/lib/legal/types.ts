@@ -8,12 +8,16 @@ import type { AppRole, LegalDocumentKey } from '@/lib/db/types'
  */
 
 /** Who the platform is, printed into every document. */
+const domain = (process.env.NEXT_PUBLIC_PLATFORM_DOMAIN ?? 'surferlive.app')
+  .replace(/:\d+$/, '')
+  .replace(/^localhost$/, 'surferlive.app')
+
 export const PLATFORM = {
   name: 'Surfer Live',
   legalName: 'Surfer Live',
-  contactEmail: `legal@${(process.env.NEXT_PUBLIC_PLATFORM_DOMAIN ?? 'surferlive.app').replace(/:\d+$/, '').replace(/^localhost$/, 'surferlive.app')}`,
-  supportEmail: `support@${(process.env.NEXT_PUBLIC_PLATFORM_DOMAIN ?? 'surferlive.app').replace(/:\d+$/, '').replace(/^localhost$/, 'surferlive.app')}`,
-  website: `https://${(process.env.NEXT_PUBLIC_PLATFORM_DOMAIN ?? 'surferlive.app').replace(/:\d+$/, '').replace(/^localhost$/, 'surferlive.app')}`,
+  contactEmail: `legal@${domain}`,
+  supportEmail: `support@${domain}`,
+  website: `https://${domain}`,
   governingLaw: 'the laws of the State of Israel',
   courts: 'the competent courts of Tel Aviv–Yafo, Israel',
 } as const

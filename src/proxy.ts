@@ -91,7 +91,9 @@ export async function proxy(request: NextRequest) {
    * a host again. A signed-in user's own club lives on their profile and is
    * compared against this in the area layouts — the address never overrides it.
    */
-  const target = parseHost(request.headers.get('host'), process.env.NEXT_PUBLIC_PLATFORM_DOMAIN ?? 'localhost:3000')
+  const target = parseHost(request.headers.get('host'), process.env.NEXT_PUBLIC_PLATFORM_DOMAIN ?? 'localhost:3000', {
+    devClubSlug: process.env.NODE_ENV !== 'production' ? process.env.NEXT_PUBLIC_DEV_CLUB_SLUG : null,
+  })
   requestHeaders.set('x-platform-area', target.kind)
   requestHeaders.delete('x-club-slug') // never trust a value that arrived from outside
   if (target.kind === 'club') requestHeaders.set('x-club-slug', target.slug)

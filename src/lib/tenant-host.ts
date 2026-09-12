@@ -27,16 +27,24 @@ export type HostTarget =
  *   <slug>.<platform domain>     → club
  *   anything else                → unknown (stray IP, misconfigured proxy)
  *
- * A LAN address during development is treated as the apex so the app can be
- * opened from a phone. Exactly one label is allowed below the platform
+ * A LAN address is the apex — unless NEXT_PUBLIC_DEV_CLUB_SLUG names a club,
+ * in which case the bare address opens that club (development only). Exactly one label is allowed below the platform
  * domain: "a.b.<domain>" names nothing.
  */
-export function parseHost(host: string | null | undefined, platformDomain: string): HostTarget {
+export function parseHost(
+  host: string | null | undefined,
+  platformDomain: string,
+  options: { devClubSlug?: string | null } = {},
+): HostTarget {
   const h = bareHost(host)
   const base = bareHost(platformDomain)
   if (!h || !base) return { kind: 'unknown' }
+  // In development a phone on the LAN cannot resolve <slug>.localhost, so a
+  // bare IP (or the bare local domain) may stand in for one named club.
+  const isLan = /^\d{1,3}(\.\d{1,3}){3}$/.test(h)
+  if (options.devClubSlug && (isLan || h === base)) return { kind: 'club', slug: options.devClubSlug }
   if (h === base) return { kind: 'apex' }
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h)) return { kind: 'apex' }
+  if (isLan) return { kind: 'apex' }
   if (!h.endsWith(`.${base}`)) return { kind: 'unknown' }
 
   const label = h.slice(0, -(base.length + 1))

@@ -1,5 +1,6 @@
 'use client'
 
+import { AdmLabel as Label } from '@/components/admin/pieces'
 import Link from 'next/link'
 import { useState, useTransition } from 'react'
 import { lookupPlaceAction, provisionClubAction } from '@/lib/actions/platform'
@@ -8,17 +9,6 @@ import { ActionForm, CopyButton, SubmitButton } from '@/components/ui/form'
 import { Alert } from '@/components/ui'
 import { adminButton } from '@/components/ui/button-class'
 import { slugify } from '@/lib/tenant-host'
-
-function Label({ children, hint }: { children: React.ReactNode; hint?: string }) {
-  return (
-    <span className="a-label mb-1.5 block" style={{ color: 'var(--color-adm-ink-2)' }}>
-      {children}
-      {hint && (
-        <span style={{ marginLeft: 6, fontWeight: 600, letterSpacing: 0, textTransform: 'none', opacity: 0.8 }}>{hint}</span>
-      )}
-    </span>
-  )
-}
 
 /**
  * Add a club. The Google Maps link comes first: "Look up" reads the listing

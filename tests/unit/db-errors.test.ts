@@ -95,3 +95,11 @@ test('anything unrecognised keeps the caller\'s line and adds the database code'
   )
   assert.equal(describeDbError(null), 'Something went wrong.')
 })
+
+test('a trigger message keeps the field prefix it was written with', () => {
+  assert.equal(
+    describeDbError({ code: 'P0001', message: 'Instructors: your plan "Beach Vibes" allows 10 instructors and the club already has 10.' }),
+    'Instructors: your plan "Beach Vibes" allows 10 instructors and the club already has 10.',
+  )
+  assert.equal(describeDbError({ code: 'P0001', message: 'ERROR: Sessions end before 09:00 today' }), 'Sessions end before 09:00 today')
+})

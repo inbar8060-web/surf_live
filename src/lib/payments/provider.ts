@@ -47,6 +47,8 @@ export interface CheckoutSession {
 export interface SubscriptionCheckoutRequest {
   /** Our club_subscriptions row id; comes back in the webhook. */
   subscriptionId: string
+  /** Changes on every checkout start, so retries dedupe but a re-subscribe does not replay. */
+  attempt: string
   clubId: string
   clubName: string
   planKey: string
@@ -96,6 +98,8 @@ export type ProviderEvent =
     }
   | {
       kind: 'subscription'
+      /** When the provider says it happened — to refuse an older event after a newer one. */
+      occurredAt: string | null
       type: 'activated' | 'updated' | 'past_due' | 'canceled'
       /** Our club_subscriptions row id, from the metadata we attached. */
       subscriptionId: string | null
@@ -121,6 +125,7 @@ export interface PaymentProvider {
     providerSubscriptionId: string,
     plan: { key: string; name: string; priceCents: number; currency: string },
   ): Promise<{ periodEnd: string | null }>
+  /** Schedule the subscription to end at the close of the current paid period. */
   cancelSubscription(providerSubscriptionId: string): Promise<void>
 
   createConnectOnboarding(request: ConnectOnboardingRequest): Promise<{ accountId: string; url: string }>

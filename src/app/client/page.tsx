@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Anchor, Compass, MessageCircle, Sun, Thermometer, Ticket, Users, Waves, Wind } from 'lucide-react'
+import { Anchor, Compass, MessageCircle, Sun, Thermometer, Ticket, Users, Waves, Wind, LogOut } from 'lucide-react'
 import { createUserClient } from '@/lib/supabase/server'
 import { requireRole } from '@/lib/auth/session'
 import { getClubSettings } from '@/lib/db/queries'
@@ -7,6 +7,7 @@ import { compass, getSpotConditions, type SpotConditions } from '@/lib/surf/cond
 import { MemberHero, MemberStatus } from '@/components/member/hero'
 import { memberButton } from '@/components/ui/button-class'
 import { Empty, Initials, MicroLabel } from '@/components/ui/bits'
+import { signOutAction } from '@/lib/actions/auth'
 import { formatRelative, formatTime } from '@/lib/util/format'
 import { telUrl, whatsappChatUrl, isWhatsappGroupUrl } from '@/lib/util/contact'
 
@@ -137,7 +138,28 @@ export default async function ClientHomePage() {
               {greeting(club.timezone)}, {firstName}
             </h1>
           </div>
-          <Initials name={user.profile.full_name} size={44} background="#0b4a6d" color="#b6e8ff" fontSize={15} />
+          <div className="flex items-center gap-2">
+            <Link href="/account" aria-label="Your account">
+              <Initials name={user.profile.full_name} size={44} background="#0b4a6d" color="#b6e8ff" fontSize={15} />
+            </Link>
+            <form action={signOutAction}>
+              <button
+                type="submit"
+                className="inline-flex items-center gap-1.5"
+                style={{
+                  height: 36,
+                  padding: '0 12px',
+                  borderRadius: 12,
+                  background: '#0b4a6d',
+                  color: '#b6e8ff',
+                  fontSize: 12,
+                  fontWeight: 800,
+                }}
+              >
+                <LogOut size={14} /> Sign out
+              </button>
+            </form>
+          </div>
         </div>
 
         <div className="mt-5 flex items-center gap-3.5">

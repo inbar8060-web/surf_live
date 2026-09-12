@@ -9,7 +9,7 @@ import { requireRoleForAction, homeFor } from '@/lib/auth/session'
 import { recordAudit } from '@/lib/audit'
 import { clientIp } from '@/lib/util/request'
 import { legalDocumentsFor, outstandingLegal } from '@/lib/legal'
-import { assertSameOrigin, fail, failDb, ok, type ActionResult } from './result'
+import { assertSameOrigin, fail, failDb, type ActionResult } from './result'
 import { strList } from './form'
 
 /**
@@ -66,5 +66,4 @@ export async function acceptLegalAction(_prev: ActionResult<null> | null, formDa
 
   revalidatePath('/', 'layout')
   redirect(homeFor(user.profile.role))
-  return ok(null)
 }

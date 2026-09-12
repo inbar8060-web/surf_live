@@ -1,7 +1,6 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { headers } from 'next/headers'
 import { z } from 'zod'
 import { createUserClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -10,12 +9,12 @@ import { clubUrl } from '@/lib/tenant'
 import { RESERVED_SLUGS, slugify } from '@/lib/tenant-host'
 import { parseMapsUrl } from '@/lib/places/maps-link'
 import { generateInviteToken, inviteUrl } from '@/lib/util/invites'
-import { clientIp } from '@/lib/util/request'
+import { recordPlatformAudit } from '@/lib/audit'
 import { MapsLinkError, resolveClubPlace, type ClubPlace } from '@/lib/places/resolve'
 import { mailProvider } from '@/lib/mail'
 import { emailSchema, openingHoursSchema, phoneSchema } from '@/lib/validation/schemas'
 import type { ClubSettings } from '@/lib/db/types'
-import { assertSameOrigin, describeDbError, fail, fromZod, ok, failDb, type ActionResult } from './result'
+import { assertSameOrigin, fail, failDb, fromZod, ok, type ActionResult } from './result'
 import { optionalStr, str } from './form'
 
 /**
@@ -30,17 +29,6 @@ import { optionalStr, str } from './form'
 
 const DENIED = 'Platform operator role required.'
 
-/** Everything the operator does is written to their own trail, never a club's. */
-async function platformAudit(actorId: string, action: string, clubId: string | null, detail?: unknown) {
-  const headerList = await headers()
-  await createAdminClient().from('platform_audit_log').insert({
-    actor_id: actorId,
-    action,
-    club_id: clubId,
-    detail: (detail as Record<string, unknown>) ?? null,
-    ip: clientIp(headerList),
-  })
-}
 
 /* ------------------------------------------------------------ provisioning */
 
@@ -58,7 +46,16 @@ const mapsSchema = z
   .trim()
   .url()
   .max(2000)
-  .refine((u) => parseMapsUrl(u) !== null, 'Paste a Google Maps link')
+  .transform((u, ctx) => {
+    const parsed = parseMapsUrl(u)
+    if (!parsed) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Paste a Google Maps link' })
+      return z.NEVER
+    }
+    // the normalised form (consent wrapper unwrapped, path made explicit) is
+    // what the database rule expects
+    return parsed.href
+  })
 
 /** The listing's facts, as the form carries them between look-up and create. */
 const detailsSchema = {
@@ -225,11 +222,11 @@ export async function provisionClubAction(
     console.error('[platform] could not send the provisioning email', cause)
   }
 
-  await platformAudit(operator.id, 'club.created', club.id, {
+  await recordPlatformAudit({ actorId: operator.id, action: 'club.created', clubId: club.id, detail: {
     slug: club.slug,
     admin_email: parsed.data.adminEmail,
     invite_delivered: delivered,
-  })
+  } })
 
   // The development provider records the send and drops it, so in that case
   // the link is shown to the operator as well — otherwise nobody would have it.
@@ -291,9 +288,9 @@ export async function setClubStatusAction(
 
   if (error) return failDb(error, 'Could not change the club.')
 
-  await platformAudit(operator.id, `club.${parsed.data.status}`, parsed.data.clubId, {
+  await recordPlatformAudit({ actorId: operator.id, action: `club.${parsed.data.status}`, clubId: parsed.data.clubId, detail: {
     reason: parsed.data.reason ?? null,
-  })
+  } })
 
   revalidatePath('/platform')
   revalidatePath(`/platform/clubs/${parsed.data.clubId}`)
@@ -335,7 +332,7 @@ export async function updateClubAction(
 
   if (error) return failDb(error, 'Could not save the club.')
 
-  await platformAudit(operator.id, 'club.updated', parsed.data.clubId, parsed.data)
+  await recordPlatformAudit({ actorId: operator.id, action: 'club.updated', clubId: parsed.data.clubId, detail: parsed.data })
   revalidatePath(`/platform/clubs/${parsed.data.clubId}`)
   return ok(null, 'Club updated.')
 }
@@ -393,7 +390,7 @@ export async function reissueAdminInviteAction(
   }
 
   const showLink = !delivered || mail.name === 'log'
-  await platformAudit(operator.id, 'club.admin_invite_reissued', club.id, { delivered })
+  await recordPlatformAudit({ actorId: operator.id, action: 'club.admin_invite_reissued', clubId: club.id, detail: { delivered } })
   revalidatePath(`/platform/clubs/${club.id}`)
   return ok(
     { inviteUrl: showLink ? link : null },
@@ -449,7 +446,7 @@ export async function refreshClubFromMapsAction(
   const { error } = await admin.from('club_settings').update(patch).eq('club_id', club.id)
   if (error) return failDb(error, 'Could not save the listing.')
 
-  await platformAudit(operator.id, 'club.listing_refreshed', club.id, { fields: Object.keys(patch) })
+  await recordPlatformAudit({ actorId: operator.id, action: 'club.listing_refreshed', clubId: club.id, detail: { fields: Object.keys(patch) } })
   revalidatePath(`/platform/clubs/${club.id}`)
   return ok(null, `Updated ${Object.keys(patch).length} field(s) from the listing.`)
 }

@@ -4,6 +4,29 @@ import { Help } from '@/components/ui/help'
 
 /** Admin building blocks: page furniture, sub-tabs, tables and chips. */
 
+/** The label above a form field in the admin and platform areas. */
+export function AdmLabel({
+  children,
+  help,
+  helpTitle,
+  hint,
+}: {
+  children: ReactNode
+  help?: ReactNode
+  helpTitle?: string
+  hint?: string
+}) {
+  return (
+    <span className="a-label mb-1.5 flex items-center gap-1.5" style={{ color: 'var(--color-adm-ink-2)' }}>
+      {children}
+      {hint && (
+        <span style={{ fontWeight: 600, letterSpacing: 0, textTransform: 'none', opacity: 0.8 }}>{hint}</span>
+      )}
+      {help && <Help title={helpTitle ?? String(children)}>{help}</Help>}
+    </span>
+  )
+}
+
 export function PageTitle({
   title,
   sub,

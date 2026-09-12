@@ -197,7 +197,8 @@ export function NewRentalForm({
   clients: { id: string; name: string }[]
   items: { id: string; label: string; dailyCents: number; currency: string }[]
 }) {
-  const today = new Date().toISOString().slice(0, 10)
+  // the browser's own calendar day, not the UTC one
+  const today = new Date().toLocaleDateString('en-CA')
   const [itemId, setItemId] = useState('')
   const [start, setStart] = useState(today)
   const [end, setEnd] = useState(today)

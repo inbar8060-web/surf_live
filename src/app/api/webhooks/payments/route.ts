@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { paymentProvider, type ConnectAccountState, type ProviderEvent } from '@/lib/payments'
-import { recordAudit } from '@/lib/audit'
+import { recordAudit, recordPlatformAudit } from '@/lib/audit'
 import { applyAccountState } from '@/lib/billing/accounts'
 import type { PaymentStatus, PlanKey, SubscriptionStatus } from '@/lib/db/types'
 
@@ -196,6 +196,16 @@ async function handleSubscription(db: Db, event: Extract<ProviderEvent, { kind: 
     return NextResponse.json({ received: true })
   }
 
+  // Providers retry and do not promise order. Nothing reopens a cancelled
+  // subscription except a fresh checkout ('activated'), and nothing older
+  // than the row's last write is applied.
+  if (subscription.status === 'canceled' && event.type !== 'activated') {
+    return NextResponse.json({ received: true, stale: true })
+  }
+  if (event.occurredAt && new Date(event.occurredAt) < new Date(subscription.updated_at) && event.type !== 'activated') {
+    return NextResponse.json({ received: true, stale: true })
+  }
+
   const status: SubscriptionStatus =
     event.type === 'canceled' ? 'canceled' : event.type === 'past_due' ? 'past_due' : 'active'
 
@@ -212,14 +222,16 @@ async function handleSubscription(db: Db, event: Extract<ProviderEvent, { kind: 
       provider_customer_id: event.providerCustomerId ?? subscription.provider_customer_id,
       current_period_start: event.periodStart ?? subscription.current_period_start,
       current_period_end: event.periodEnd ?? subscription.current_period_end,
-      canceled_at: status === 'canceled' ? new Date().toISOString() : null,
+      // a scheduled cancellation stays scheduled; a new checkout clears it
+      canceled_at:
+        status === 'canceled' ? (subscription.canceled_at ?? new Date().toISOString()) : event.type === 'activated' ? null : subscription.canceled_at,
     })
     .eq('id', subscription.id)
 
-  await db.from('platform_audit_log').insert({
-    actor_id: null,
+  await recordPlatformAudit({
+    actorId: null,
     action: `subscription.${event.type}`,
-    club_id: subscription.club_id,
+    clubId: subscription.club_id,
     detail: { plan: planRow?.key ?? subscription.plan_key, status, period_end: event.periodEnd },
   })
 

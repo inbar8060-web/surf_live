@@ -260,12 +260,14 @@ async function runAssistant(conversationId: string, clubId: string): Promise<voi
       .select('sender_role, body')
       .eq('conversation_id', conversationId)
       .eq('club_id', clubId)
-      .order('created_at', { ascending: true })
+      // the newest MAX_TRANSCRIPT rows, then back into reading order
+      .order('created_at', { ascending: false })
       .limit(MAX_TRANSCRIPT),
     getClubSettings(),
   ])
 
   const transcript: TranscriptMessage[] = (rows ?? [])
+    .reverse()
     .filter((m) => m.sender_role !== 'super_admin')
     .map((m) => ({ role: m.sender_role === 'bot' ? 'bot' : 'admin', body: m.body }))
 

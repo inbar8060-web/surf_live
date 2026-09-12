@@ -32,12 +32,14 @@ test('summarisePayments counts only what actually happened', () => {
       { kind: 'rental', status: 'pending', amount_cents: 12000, currency: 'ILS' },
     ],
   )
-  assert.equal(s.succeeded, 2)
-  assert.equal(s.grossCents, 19000)
+  // three payments were taken (one later refunded): gross counts all three,
+  // the refund comes off once, fees stay with the platform
+  assert.equal(s.succeeded, 3)
+  assert.equal(s.grossCents, 37000)
   assert.equal(s.refundedCents, 18000)
   assert.equal(s.feeCents, 950)
-  assert.equal(s.netCents, 19000 - 18000 - 950)
-  assert.equal(s.averageCents, 9500)
+  assert.equal(s.netCents, 37000 - 18000 - 950)
+  assert.equal(s.averageCents, Math.round(37000 / 3))
   assert.equal(s.failed, 1)
   assert.deepEqual(s.byKind.tip, { count: 1, cents: 1000 })
 })
@@ -45,4 +47,10 @@ test('summarisePayments counts only what actually happened', () => {
 test('toCsv quotes what needs quoting', () => {
   const csv = toCsv([{ a: 'x,y', b: 'say "hi"', c: 3 }], ['a', 'b', 'c'])
   assert.equal(csv, '﻿a,b,c\r\n"x,y","say ""hi""",3\r\n')
+})
+
+test('a single refunded payment nets to zero, not to minus the refund', () => {
+  const s = summarisePayments([{ kind: 'reservation', status: 'refunded', amount_cents: 18000, currency: 'ILS' }])
+  assert.equal(s.grossCents, 18000)
+  assert.equal(s.netCents, 0)
 })

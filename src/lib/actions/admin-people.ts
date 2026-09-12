@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { assertRole, clubIdOf } from '@/lib/auth/session'
 import { recordAudit } from '@/lib/audit'
-import { publicEnv } from '@/lib/env'
+import { requestClubUrl } from '@/lib/tenant'
 import { generateInviteToken, inviteUrl } from '@/lib/util/invites'
 import { rateLimit } from '@/lib/util/rate-limit'
 import {
@@ -82,7 +82,7 @@ export async function createInviteAction(
 
   revalidatePath('/admin/people')
   return ok(
-    { url: inviteUrl(publicEnv.NEXT_PUBLIC_SITE_URL, token), expiresAt },
+    { url: inviteUrl(await requestClubUrl(''), token), expiresAt },
     'Registration link created. Copy it now — it is not shown again.',
   )
 }

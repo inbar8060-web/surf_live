@@ -79,5 +79,4 @@ export async function assertSameOrigin(): Promise<boolean> {
   return allowed.has(origin.replace(/\/$/, ''))
 }
 
-export { describeDbError } from '@/lib/db/errors'
 import { describeDbFailure } from '@/lib/db/errors'

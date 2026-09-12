@@ -95,6 +95,7 @@ export interface PaymentLike {
 
 export interface PaymentSummary {
   currency: string
+  /** Payments that were taken, including ones refunded afterwards. */
   succeeded: number
   failed: number
   refunded: number
@@ -121,13 +122,15 @@ export function summarisePayments(payments: PaymentLike[], currency = 'ILS'): Pa
   let feeCents = 0
 
   for (const p of payments) {
-    if (p.status === 'succeeded') {
+    if (p.status === 'succeeded' || p.status === 'refunded') {
+      // a refunded payment was taken first: it belongs in gross and comes off again below
       succeeded += 1
       grossCents += p.amount_cents
       feeCents += p.platform_fee_cents ?? 0
       byKind[p.kind].count += 1
       byKind[p.kind].cents += p.amount_cents
-    } else if (p.status === 'refunded') {
+    }
+    if (p.status === 'refunded') {
       refunded += 1
       refundedCents += p.amount_cents
     } else if (p.status === 'failed') {

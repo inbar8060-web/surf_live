@@ -1,19 +1,12 @@
 'use client'
 
+import { AdmLabel as Label } from '@/components/admin/pieces'
 import { useState } from 'react'
 import { refreshClubFromMapsAction, reissueAdminInviteAction, setClubStatusAction, updateClubAction } from '@/lib/actions/platform'
 import { setPlatformFeeAction } from '@/lib/actions/billing'
 import { ActionForm, CopyButton, SubmitButton } from '@/components/ui/form'
 import { adminButton } from '@/components/ui/button-class'
 import type { Club } from '@/lib/db/types'
-
-function Label({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="a-label mb-1.5 block" style={{ color: 'var(--color-adm-ink-2)' }}>
-      {children}
-    </span>
-  )
-}
 
 export function EditClubForm({ club }: { club: Club }) {
   return (

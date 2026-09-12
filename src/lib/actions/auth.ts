@@ -5,7 +5,7 @@ import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { createUserClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { clubUrl, getRequestArea, platformUrl } from '@/lib/tenant'
+import { getRequestArea, ownClubUrl, platformUrl } from '@/lib/tenant'
 import { legalDocumentsFor } from '@/lib/legal'
 import { clientIp } from '@/lib/util/request'
 import { getSessionUser, homeFor } from '@/lib/auth/session'
@@ -73,13 +73,13 @@ export async function signInAction(
   const area = await getRequestArea()
   if (profile.role === 'super_admin') {
     if (area !== 'platform') redirect(platformUrl('/platform'))
-  } else if (area !== 'club') {
-    const { data: club } = await createAdminClient()
-      .from('clubs')
-      .select('slug')
-      .eq('id', profile.club_id ?? '')
-      .maybeSingle()
-    redirect(club ? clubUrl(club.slug, homeFor(profile.role as AppRole)) : '/login')
+  } else {
+    const home = await ownClubUrl(profile.club_id, homeFor(profile.role as AppRole))
+    if (!home) {
+      await supabase.auth.signOut()
+      return fail('This club is no longer on the platform, so this account cannot sign in. Contact the club directly.')
+    }
+    if (area !== 'club') redirect(home)
   }
 
   // Only ever follow an internal path. `safeInternalPath` also refuses the

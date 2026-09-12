@@ -243,11 +243,14 @@ select test.check(
       and p.tablename not in ('clubs', 'plans', 'support_conversations', 'support_messages', 'platform_audit_log')
       and coalesce(p.qual, '') not like '%club_id%'
       and coalesce(p.with_check, '') not like '%club_id%'
-      -- two exemptions: reading your own profile row, which carries no
-      -- club-scoped data of anyone else; and the operator's own policies on
-      -- the billing tables (named *_platform), since the operator has no club
-      and not (p.tablename = 'profiles' and p.policyname = 'profiles_select_self')
-      and not (p.policyname like '%\_platform' and p.qual like '%is_super_admin()%')
+      -- two exemptions, each by what the policy says rather than what it is
+      -- called: reading exactly your own profile row, and a policy that is
+      -- exactly the operator's (who has no club) and nothing looser
+      and not (p.tablename = 'profiles' and regexp_replace(coalesce(p.qual, ''), '\s', '', 'g') = '(id=auth.uid())')
+      and not (
+        regexp_replace(coalesce(p.qual, ''), '\s', '', 'g') = 'app.is_super_admin()'
+        and regexp_replace(coalesce(p.with_check, p.qual, ''), '\s', '', 'g') = 'app.is_super_admin()'
+      )
   ),
   'every policy on every club-scoped table is conjoined with the club');
 

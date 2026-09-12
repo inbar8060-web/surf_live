@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { hashInviteToken } from '@/lib/util/invites'
-import { getClubSettings } from '@/lib/db/queries'
+import { getRequestClub } from '@/lib/tenant'
 import { Alert } from '@/components/ui'
 import { InviteForm } from './invite-form'
 
@@ -26,7 +26,7 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
     .eq('token_hash', hashInviteToken(decoded))
     .maybeSingle()
 
-  const club = await getClubSettings()
+  const club = await getRequestClub()
 
   const problem = !invite
     ? 'This registration link is not valid.'
@@ -42,7 +42,7 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
     <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-4 py-10">
       <div className="mb-6 text-center">
         <p className="text-3xl" aria-hidden>🌊</p>
-        <h1 className="mt-2 text-2xl font-semibold">Welcome to {club.club_name}</h1>
+        <h1 className="mt-2 text-2xl font-semibold">Welcome to {club?.name ?? 'Surfer Live'}</h1>
         <p className="muted mt-1 text-sm">Set a password to finish creating your account</p>
       </div>
 

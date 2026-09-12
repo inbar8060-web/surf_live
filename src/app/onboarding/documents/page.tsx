@@ -5,61 +5,12 @@ import { createUserClient } from '@/lib/supabase/server'
 import { getClubSettings } from '@/lib/db/queries'
 import { MemberHero } from '@/components/member/hero'
 import { MicroLabel } from '@/components/ui/bits'
-import { REQUIRED_DOCUMENTS, outstandingDocuments, type Block } from '@/lib/documents'
+import { REQUIRED_DOCUMENTS, outstandingDocuments } from '@/lib/documents'
+import { DocumentBody } from '@/components/document-body'
 import { SignForm } from './sign-form'
 
 export const metadata = { title: 'Documents to sign' }
 export const dynamic = 'force-dynamic'
-
-function Body({ block }: { block: Block }) {
-  switch (block.kind) {
-    case 'heading':
-      return (
-        <MicroLabel color="#5a6f7d" className="mt-4 mb-1.5">
-          {block.text}
-        </MicroLabel>
-      )
-    case 'emphatic':
-      return (
-        <p
-          className="my-2"
-          style={{
-            background: '#eff9ff',
-            borderRadius: 14,
-            padding: '11px 13px',
-            fontSize: 13,
-            fontWeight: 700,
-            lineHeight: 1.5,
-            textTransform: 'uppercase',
-          }}
-        >
-          {block.text}
-        </p>
-      )
-    case 'list':
-      return (
-        <div className="my-2">
-          {block.title && (
-            <p style={{ margin: '0 0 4px', fontSize: 13, fontWeight: 700 }}>{block.title}</p>
-          )}
-          <ul style={{ margin: 0, paddingLeft: 18 }}>
-            {block.items.map((item) => (
-              <li key={item} style={{ fontSize: 13, lineHeight: 1.55, color: '#33505f' }}>
-                {item}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )
-    case 'paragraph':
-    default:
-      return (
-        <p style={{ margin: '0 0 10px', fontSize: 13, lineHeight: 1.6, color: '#33505f' }}>
-          {block.text}
-        </p>
-      )
-  }
-}
 
 /**
  * First-registration signing.
@@ -141,9 +92,7 @@ export default async function SignDocumentsPage() {
               tabIndex={0}
               aria-label={`${current.title} full text`}
             >
-              {current.body(context).map((block, i) => (
-                <Body key={i} block={block} />
-              ))}
+              <DocumentBody blocks={current.body(context)} />
             </div>
           </section>
 

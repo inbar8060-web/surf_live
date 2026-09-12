@@ -19,6 +19,8 @@ const publicSchema = z.object({
    * — browsers resolve *.localhost to the machine without any DNS setup.
    */
   NEXT_PUBLIC_PLATFORM_DOMAIN: z.string().min(3),
+  /** Development only: the club a bare localhost / LAN address opens, for phone testing. */
+  NEXT_PUBLIC_DEV_CLUB_SLUG: z.string().optional(),
 })
 
 const serverSchema = z.object({
@@ -64,6 +66,7 @@ export const publicEnv = parse(
     NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
     NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
     NEXT_PUBLIC_PLATFORM_DOMAIN: process.env.NEXT_PUBLIC_PLATFORM_DOMAIN,
+    NEXT_PUBLIC_DEV_CLUB_SLUG: process.env.NEXT_PUBLIC_DEV_CLUB_SLUG,
   },
   'public',
 )

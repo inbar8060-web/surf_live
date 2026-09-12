@@ -1,9 +1,9 @@
 'use client'
 
+import { AdmLabel as Label } from '@/components/admin/pieces'
 import { saveTimeSlotAction } from '@/lib/actions/admin-schedule'
 import { ActionForm, SubmitButton } from '@/components/ui/form'
 import { adminButton } from '@/components/ui/button-class'
-import { Help } from '@/components/ui/help'
 
 export interface ServiceOption {
   id: string
@@ -17,15 +17,6 @@ export interface ServiceOption {
 export interface InstructorOption {
   id: string
   name: string
-}
-
-function Label({ children, help, helpTitle }: { children: React.ReactNode; help?: React.ReactNode; helpTitle?: string }) {
-  return (
-    <span className="a-label mb-1.5 flex items-center gap-1.5" style={{ color: 'var(--color-adm-ink-2)' }}>
-      {children}
-      {help && <Help title={helpTitle ?? String(children)}>{help}</Help>}
-    </span>
-  )
 }
 
 /**

@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { createAdminClient } from '@/lib/supabase/admin'
+import { recordPlatformAudit } from '@/lib/audit'
 import type { ConnectAccountState } from '@/lib/payments/provider'
 import type { PayoutAccountStatus } from '@/lib/db/types'
 
@@ -40,10 +41,10 @@ export async function applyAccountState(state: ConnectAccountState): Promise<{ c
     })
     .eq('club_id', account.club_id)
 
-  await db.from('platform_audit_log').insert({
-    actor_id: null,
+  await recordPlatformAudit({
+    actorId: null,
     action: 'payouts.account_updated',
-    club_id: account.club_id,
+    clubId: account.club_id,
     detail: { status, requirements_due: state.requirementsDue.length },
   })
 

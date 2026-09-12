@@ -7,7 +7,7 @@ import { assertRole, clubIdOf, requireRoleForAction } from '@/lib/auth/session'
 import { getClubSettings } from '@/lib/db/queries'
 import { recordAudit } from '@/lib/audit'
 import { rateLimit } from '@/lib/util/rate-limit'
-import { publicEnv } from '@/lib/env'
+import { requestClubUrl } from '@/lib/tenant'
 import { createClubCheckout, paymentProvider, PayoutsNotReady } from '@/lib/payments'
 import { tipSchema } from '@/lib/validation/schemas'
 import { assertSameOrigin, fail, fromZod, failDb, type ActionResult } from './result'
@@ -85,7 +85,7 @@ export async function createTipCheckoutAction(
     return failDb(paymentError, 'Could not start the payment.')
   }
 
-  const site = publicEnv.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '')
+  const site = await requestClubUrl('')
   let checkoutUrl: string
 
   try {

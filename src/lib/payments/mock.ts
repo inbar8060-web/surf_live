@@ -1,7 +1,7 @@
 import 'server-only'
 
 import { createHmac, timingSafeEqual } from 'node:crypto'
-import { serverEnv } from '@/lib/env'
+import { publicEnv, serverEnv } from '@/lib/env'
 import {
   IGNORED,
   type CheckoutRequest,
@@ -30,6 +30,20 @@ function assertNotProduction() {
 
 export function signMockPayload(payload: string): string {
   return createHmac('sha256', serverEnv().APP_SECRET).update(payload).digest('hex')
+}
+
+/**
+ * Deliver a simulated event to the real webhook route, signed. The route is
+ * outside the tenant proxy so the platform's own address is the right target.
+ */
+export async function postMockWebhook(payload: string): Promise<Response> {
+  assertNotProduction()
+  return fetch(`${publicEnv.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '')}/api/webhooks/payments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-payment-signature': signMockPayload(payload) },
+    body: payload,
+    cache: 'no-store',
+  })
 }
 
 export const mockProvider: PaymentProvider = {
@@ -129,6 +143,7 @@ export const mockProvider: PaymentProvider = {
         return {
           kind: 'subscription',
           type: type as 'activated' | 'updated' | 'past_due' | 'canceled',
+          occurredAt: new Date().toISOString(),
           subscriptionId,
           providerSubscriptionId: subscriptionId ? `mock_sub_${subscriptionId}` : null,
           providerCustomerId: null,

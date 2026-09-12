@@ -95,6 +95,7 @@ cp .env.example .env.local
 | `SUPABASE_SERVICE_ROLE_KEY` | same page — **server only, never expose** |
 | `NEXT_PUBLIC_SITE_URL` | `http://localhost:3000` locally, your domain in production |
 | `NEXT_PUBLIC_PLATFORM_DOMAIN` | the domain clubs live under: `localhost:3000` locally, `surferlive.app` in production — see *Many clubs, one deployment* |
+| `NEXT_PUBLIC_DEV_CLUB_SLUG` | development only: the club a bare `localhost:3000` or LAN address opens, so a phone on the Wi-Fi can test the app |
 | `APP_SECRET` | `openssl rand -base64 48` |
 | `PAYMENT_PROVIDER` | `mock` while developing, `stripe` in production |
 | `GOOGLE_MAPS_API_KEY` | optional — reads a club's listing (address, hours, contact, pin) from its Maps link when a club is added |
@@ -190,7 +191,7 @@ settings row and the audit line in one transaction; the app mints a
 single-use registration link bound to that club and emails it. The account
 that link creates belongs to that club and no other. Clubs can be paused (members
 see a holding page, administrators can still sign in), resumed, or archived
-(offline, data kept). Nothing is ever deleted from the operator's screens.
+(offline, data kept; anyone still signed in is shown `/closed`). Nothing is ever deleted from the operator's screens.
 
 **Plans, billing and payouts.** A club's administrator, once their account
 exists, is walked through two steps before the desk opens: choose a plan and
@@ -490,6 +491,7 @@ supabase/migrations/   schema, RLS policies, triggers, views, RPC
   0015                 a club's listing details (address, hours, contact, pin)
   0016                 every form of a Google Maps link
   0017                 plans, subscriptions, payout accounts, legal acceptance, finance views
+  0018                 review fixes: per-club locks on plan limits, indexes, one Maps rule
 
 src/lib/
   supabase/            the two clients — user (RLS) and admin (service role)

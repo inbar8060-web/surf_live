@@ -55,10 +55,12 @@ function accountState(account: Stripe.Account): ConnectAccountState {
 function subscriptionEvent(
   type: 'activated' | 'updated' | 'past_due' | 'canceled',
   subscription: Stripe.Subscription,
+  occurredAt: string | null,
 ): ProviderEvent {
   return {
     kind: 'subscription',
     type,
+    occurredAt,
     subscriptionId: subscription.metadata?.subscription_id ?? null,
     providerSubscriptionId: subscription.id,
     providerCustomerId: typeof subscription.customer === 'string' ? subscription.customer : subscription.customer.id,
@@ -131,7 +133,7 @@ export const stripeProvider: PaymentProvider = {
         metadata,
         subscription_data: { metadata },
       },
-      { idempotencyKey: `subscribe:${request.subscriptionId}:${request.planKey}` },
+      { idempotencyKey: `subscribe:${request.subscriptionId}:${request.planKey}:${request.attempt}` },
     )
     if (!session.url) throw new Error('Stripe returned a session without a URL')
     return { url: session.url, reference: session.id }
@@ -160,7 +162,7 @@ export const stripeProvider: PaymentProvider = {
   },
 
   async cancelSubscription(providerSubscriptionId) {
-    await stripe().subscriptions.cancel(providerSubscriptionId)
+    await stripe().subscriptions.update(providerSubscriptionId, { cancel_at_period_end: true })
   },
 
   async createConnectOnboarding(request: ConnectOnboardingRequest) {
@@ -203,7 +205,11 @@ export const stripeProvider: PaymentProvider = {
     if (!signature) throw new Error('Missing stripe-signature header')
 
     // One URL, two endpoints at Stripe: whichever secret verifies is the one
-    // that signed it. Both throwing is a rejection.
+    // that signed it. Both throwing is a rejection. No secret at all is a
+    // deployment mistake and must read as one, not as a forged request.
+    if (!STRIPE_WEBHOOK_SECRET && !STRIPE_CONNECT_WEBHOOK_SECRET) {
+      throw new Error('Neither STRIPE_WEBHOOK_SECRET nor STRIPE_CONNECT_WEBHOOK_SECRET is set')
+    }
     let event: Stripe.Event | null = null
     for (const secret of [STRIPE_WEBHOOK_SECRET, STRIPE_CONNECT_WEBHOOK_SECRET]) {
       if (!secret) continue
@@ -217,23 +223,43 @@ export const stripeProvider: PaymentProvider = {
     if (!event) throw new Error('Bad signature')
 
     const accountId = event.account ?? null
+    const occurredAt = iso(event.created)
 
     switch (event.type) {
-      case 'checkout.session.completed': {
+      case 'checkout.session.completed':
+      case 'checkout.session.async_payment_succeeded': {
         const session = event.data.object
         if (session.mode === 'subscription') {
+          if (event.type !== 'checkout.session.completed') return IGNORED
           const id = typeof session.subscription === 'string' ? session.subscription : session.subscription?.id
           if (!id) return IGNORED
           const subscription = await stripe().subscriptions.retrieve(id)
-          return subscriptionEvent('activated', subscription)
+          return subscriptionEvent('activated', subscription, occurredAt)
         }
+        // A completed session whose payment is still on its way (bank debit,
+        // transfer) is not a result yet: async_payment_succeeded / _failed
+        // will say. Writing "cancelled" here would bury a payment that lands.
+        if (session.payment_status !== 'paid') return IGNORED
         return {
           kind: 'payment',
-          type: session.payment_status === 'paid' ? 'succeeded' : 'cancelled',
+          type: 'succeeded',
           paymentId: session.metadata?.payment_id ?? session.client_reference_id ?? null,
           reference: session.id,
           amountCents: session.amount_total,
           currency: session.currency?.toUpperCase() ?? null,
+          accountId,
+        }
+      }
+      case 'checkout.session.async_payment_failed': {
+        const session = event.data.object
+        return {
+          kind: 'payment',
+          type: 'failed',
+          paymentId: session.metadata?.payment_id ?? session.client_reference_id ?? null,
+          reference: session.id,
+          amountCents: session.amount_total,
+          currency: session.currency?.toUpperCase() ?? null,
+          failureReason: 'The delayed payment did not complete',
           accountId,
         }
       }
@@ -285,15 +311,15 @@ export const stripeProvider: PaymentProvider = {
               : subscription.status === 'canceled' || subscription.status === 'incomplete_expired'
                 ? 'canceled'
                 : null
-        return type ? subscriptionEvent(type, subscription) : IGNORED
+        return type ? subscriptionEvent(type, subscription, occurredAt) : IGNORED
       }
       case 'customer.subscription.deleted':
-        return subscriptionEvent('canceled', event.data.object)
+        return subscriptionEvent('canceled', event.data.object, occurredAt)
       case 'invoice.payment_failed': {
         const invoice = event.data.object
         const id = typeof invoice.subscription === 'string' ? invoice.subscription : invoice.subscription?.id
         if (!id) return IGNORED
-        return subscriptionEvent('past_due', await stripe().subscriptions.retrieve(id))
+        return subscriptionEvent('past_due', await stripe().subscriptions.retrieve(id), occurredAt)
       }
       case 'account.updated':
         return { kind: 'account', state: accountState(event.data.object) }

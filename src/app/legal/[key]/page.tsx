@@ -5,7 +5,7 @@ import { LEGAL_DOCUMENTS, legalDocumentByKey } from '@/lib/legal'
 import { getRequestClub } from '@/lib/tenant'
 import { DocumentBody } from '@/components/document-body'
 
-export const revalidate = 3600
+export const dynamic = 'force-dynamic'
 
 /** The platform's legal documents, readable by anyone, on every address. */
 export async function generateMetadata({ params }: { params: Promise<{ key: string }> }): Promise<Metadata> {
