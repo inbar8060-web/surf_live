@@ -3,15 +3,16 @@
 import { revalidatePath } from 'next/cache'
 import { createUserClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { assertRole } from '@/lib/auth/session'
+import { assertRole, requireRoleForAction } from '@/lib/auth/session'
 import { recordAudit } from '@/lib/audit'
 import { rateLimit } from '@/lib/util/rate-limit'
 import {
+  idOnly,
   instructorReviewSchema,
   moderateReviewSchema,
   sessionReviewSchema,
 } from '@/lib/validation/schemas'
-import { assertSameOrigin, describeDbError, fail, fromZod, ok, type ActionResult } from './result'
+import { assertSameOrigin, fail, fromZod, ok, failDb, type ActionResult } from './result'
 import { bool, optionalStr, str } from './form'
 
 const DENIED = 'You are not allowed to do that.'
@@ -26,8 +27,9 @@ export async function submitInstructorReviewAction(
   formData: FormData,
 ): Promise<ActionResult<null>> {
   if (!(await assertSameOrigin())) return fail('Request blocked.')
-  const user = await assertRole('client')
-  if (!user) return fail(DENIED)
+  const guard = await requireRoleForAction(['client'], '/client/bookings')
+  if (!guard.ok) return fail(guard.error)
+  const user = guard.user
 
   const parsed = instructorReviewSchema.safeParse({
     instructorId: str(formData, 'instructorId'),
@@ -49,7 +51,7 @@ export async function submitInstructorReviewAction(
     body: parsed.data.body || null,
   })
 
-  if (error) return fail(describeDbError(error, 'Could not send that feedback.'))
+  if (error) return failDb(error, 'Could not send that feedback.')
 
   await recordAudit({
     actorId: user.id,
@@ -76,8 +78,9 @@ export async function submitSessionReviewAction(
   formData: FormData,
 ): Promise<ActionResult<null>> {
   if (!(await assertSameOrigin())) return fail('Request blocked.')
-  const user = await assertRole('client')
-  if (!user) return fail(DENIED)
+  const guard = await requireRoleForAction(['client'], '/client/bookings')
+  if (!guard.ok) return fail(guard.error)
+  const user = guard.user
 
   const parsed = sessionReviewSchema.safeParse({
     slotId: str(formData, 'slotId'),
@@ -101,7 +104,7 @@ export async function submitSessionReviewAction(
     body: parsed.data.body || null,
   })
 
-  if (error) return fail(describeDbError(error, 'Could not post that review.'))
+  if (error) return failDb(error, 'Could not post that review.')
 
   await recordAudit({
     actorId: user.id,
@@ -141,7 +144,7 @@ export async function moderateReviewAction(
     })
     .eq('id', parsed.data.reviewId)
 
-  if (error) return fail(describeDbError(error, 'Could not update that review.'))
+  if (error) return failDb(error, 'Could not update that review.')
 
   await recordAudit({
     actorId: admin.id,
@@ -166,13 +169,16 @@ export async function markReviewReadAction(
   const admin = await assertRole('admin')
   if (!admin) return fail(DENIED)
 
-  const reviewId = str(formData, 'reviewId')
+  const parsed = idOnly('reviewId').safeParse({ reviewId: str(formData, 'reviewId') })
+  if (!parsed.success) return fromZod(parsed.error)
+  const { reviewId } = parsed.data
+
   const { error } = await createAdminClient()
     .from('instructor_reviews')
     .update({ admin_read_at: new Date().toISOString() })
     .eq('id', reviewId)
 
-  if (error) return fail(describeDbError(error, 'Could not update that item.'))
+  if (error) return failDb(error, 'Could not update that item.')
 
   revalidatePath('/admin/reviews')
   return ok(null, 'Marked as read.')

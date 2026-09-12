@@ -3,7 +3,7 @@ import { createUserClient } from '@/lib/supabase/server'
 import { getSessionUser } from '@/lib/auth/session'
 import { getClubSettings } from '@/lib/db/queries'
 import { recordAudit } from '@/lib/audit'
-import { formatTime } from '@/lib/util/format'
+import { dayRangeInZone, formatTime, todayInZone } from '@/lib/util/format'
 
 export const dynamic = 'force-dynamic'
 
@@ -37,22 +37,22 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Not allowed' }, { status: 403 })
   }
 
-  const dateParam = request.nextUrl.searchParams.get('date')
-  const day = /^\d{4}-\d{2}-\d{2}$/.test(dateParam ?? '')
-    ? new Date(`${dateParam}T00:00:00`)
-    : new Date()
-  day.setHours(0, 0, 0, 0)
-  const nextDay = new Date(day)
-  nextDay.setDate(nextDay.getDate() + 1)
-
   const supabase = await createUserClient()
   const club = await getClubSettings()
+
+  // The day is the club's, not the server's: on Vercel the server clock is UTC,
+  // so a 07:30 session would land in the previous day's export for half the night.
+  const dateParam = request.nextUrl.searchParams.get('date')
+  const isoDay = /^\d{4}-\d{2}-\d{2}$/.test(dateParam ?? '')
+    ? dateParam!
+    : todayInZone(club.timezone)
+  const { from, to } = dayRangeInZone(isoDay, club.timezone)
 
   const { data, error } = await supabase
     .from('instructor_roster')
     .select('*')
-    .gte('starts_at', day.toISOString())
-    .lt('starts_at', nextDay.toISOString())
+    .gte('starts_at', from)
+    .lt('starts_at', to)
     .order('starts_at')
 
   if (error) {
@@ -91,8 +91,6 @@ export async function GET(request: NextRequest) {
         .join(','),
     )
   }
-
-  const isoDay = day.toISOString().slice(0, 10)
 
   await recordAudit({
     actorId: user.id,

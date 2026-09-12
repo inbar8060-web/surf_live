@@ -7,13 +7,13 @@
 select test.act_as_server();
 
 -- A session next week, capacity 2, taught by Maya.
-insert into public.time_slots (id, service_id, starts_at, ends_at, capacity, location)
-select 'aaaaaaaa-0000-0000-0000-000000000001',
+insert into public.time_slots (id, club_id, service_id, starts_at, ends_at, capacity, location)
+select 'aaaaaaaa-0000-0000-0000-000000000001', s.club_id,
        s.id, now() + interval '7 days', now() + interval '7 days 90 minutes', 2, 'Main beach'
 from public.services s where s.name = 'Beginner group lesson';
 
-insert into public.time_slot_instructors (slot_id, instructor_id, is_lead)
-values ('aaaaaaaa-0000-0000-0000-000000000001', '22222222-2222-2222-2222-222222222222', true);
+insert into public.time_slot_instructors (slot_id, club_id, instructor_id, is_lead)
+values ('aaaaaaaa-0000-0000-0000-000000000001', (select club_id from public.time_slots where id = 'aaaaaaaa-0000-0000-0000-000000000001'), '22222222-2222-2222-2222-222222222222', true);
 
 -- ---------------------------------------------------------------------------
 -- The price and the status are decided by the server, not by the caller

@@ -7,7 +7,42 @@ import { z } from 'zod'
  */
 
 export const uuid = z.string().uuid('Not a valid id')
-const trimmed = (min: number, max: number) => z.string().trim().min(min).max(max)
+/**
+ * Human-entered names and titles. Line breaks and other control characters are
+ * refused outright: several of these values end up in email headers (the club
+ * name in a subject line) and in PDF text, where a CR/LF is an injection
+ * vector rather than a typo.
+ */
+const trimmed = (min: number, max: number) =>
+  z
+    .string()
+    .trim()
+    .min(min)
+    .max(max)
+    // eslint-disable-next-line no-control-regex
+    .regex(/^[^\x00-\x1F\x7F]*$/, 'Contains characters that are not allowed')
+
+/** The single-id forms: a button that acts on one row. Keyed by a literal so
+ *  `parsed.data.<name>` is typed as `string`, not `string | undefined`. */
+export const idOnly = <K extends string>(name: K) =>
+  z.object({ [name]: uuid } as Record<K, typeof uuid>)
+
+export const staffBookSchema = z.object({
+  clientId: uuid,
+  slotId: uuid,
+  participants: z.coerce.number().int().min(1).max(20).default(1),
+  clientPackageId: uuid.optional().or(z.literal('')),
+})
+
+export const staffNoteSchema = z.object({
+  reservationId: uuid,
+  staffNote: z.string().trim().max(1000).optional().or(z.literal('')),
+})
+
+export const cancelSlotSchema = z.object({
+  slotId: uuid,
+  reason: z.string().trim().max(500).optional().or(z.literal('')),
+})
 
 export const phoneSchema = z
   .string()
@@ -321,6 +356,20 @@ export const tipSchema = z.object({
 
 /* -------------------------------------------------------------- settings */
 
+/** One line per day, as Google prints them; a textarea's worth of text in, a list out. */
+export const openingHoursSchema = z
+  .string()
+  .max(1000)
+  .optional()
+  .default('')
+  .transform((text) =>
+    text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .slice(0, 7),
+  )
+
 export const clubSettingsSchema = z.object({
   clubName: trimmed(2, 120),
   timezone: trimmed(3, 64),
@@ -329,6 +378,10 @@ export const clubSettingsSchema = z.object({
   spotLatitude: z.coerce.number().min(-90).max(90),
   spotLongitude: z.coerce.number().min(-180).max(180),
   contactPhone: phoneSchema.optional().or(z.literal('')),
+  contactEmail: emailSchema.optional().or(z.literal('')),
   cancellationWindowHours: z.coerce.number().int().min(0).max(168),
   tipsEnabled: z.coerce.boolean().default(true),
+  address: z.string().trim().max(300).optional().or(z.literal('')),
+  website: z.string().trim().url().max(300).startsWith('http').optional().or(z.literal('')),
+  openingHours: openingHoursSchema,
 })

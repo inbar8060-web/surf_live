@@ -1,21 +1,30 @@
+import { Phone } from 'lucide-react'
 import { createUserClient } from '@/lib/supabase/server'
+import { requireRole } from '@/lib/auth/session'
 import { getClubSettings } from '@/lib/db/queries'
-import { Badge, Card, EmptyState, PageHeader, StatusBadge } from '@/components/ui'
-import { ReservationDecision } from '@/components/reservation-decision'
-import { CallButton, WhatsAppButton } from '@/components/contact-links'
+import { ScreenTitle, Flag, NotePanel, InsChip } from '@/components/instructor/pieces'
+import { instructorButton } from '@/components/ui/button-class'
+import { Empty, Initials } from '@/components/ui/bits'
 import { formatDateTime, formatRelative } from '@/lib/util/format'
+import { telUrl } from '@/lib/util/contact'
+import { InlineDecision } from '../inline-decision'
 
 export const metadata = { title: 'Requests' }
 export const dynamic = 'force-dynamic'
 
 /**
- * Requests on this instructor's own sessions.
- *
- * The filtering is not done here — staff_reservation_queue only returns rows
- * for sessions the caller teaches. An instructor who tampers with the request
- * simply gets nothing back.
+ * `staff_reservation_queue` only returns rows for sessions the caller teaches,
+ * so this page never has to filter by ownership — an instructor who tampers
+ * with the request simply gets nothing back.
  */
-export default async function InstructorRequestsPage() {
+export default async function InstructorRequestsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ view?: string }>
+}) {
+  const { view } = await searchParams
+  await requireRole('instructor')
+
   const supabase = await createUserClient()
   const club = await getClubSettings()
 
@@ -27,93 +36,130 @@ export default async function InstructorRequestsPage() {
     .order('starts_at')
     .limit(150)
 
-  const pending = (rows ?? []).filter((r) => r.status === 'pending')
+  const waiting = (rows ?? []).filter((r) => r.status === 'pending')
   const approved = (rows ?? []).filter((r) => r.status === 'approved')
+  const showApproved = view === 'approved'
+  const list = showApproved ? approved : waiting
 
   return (
     <>
-      <PageHeader
-        title="Requests for your sessions"
-        description="Approve or decline the members who asked to join a session you are teaching."
-      />
+      <ScreenTitle title="Requests" sub="Only for sessions you are teaching." />
 
-      <Card
-        title="Awaiting your approval"
-        action={pending.length ? <Badge tone="warning">{pending.length}</Badge> : null}
-        className="mb-4"
-      >
-        {pending.length ? (
-          <ul className="space-y-3">
-            {pending.map((row) => (
-              <li key={row.reservation_id} className="rounded-lg border px-3 py-3" style={{ borderColor: 'var(--border)' }}>
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="flex flex-wrap items-center gap-2 font-medium">
-                      {row.client_name}
-                      <Badge tone="neutral">{row.client_level}</Badge>
-                      {row.revision > 1 && <Badge tone="warning">Changed — needs re-approval</Badge>}
-                      {!row.waiver_signed_at && <Badge tone="danger">No waiver</Badge>}
-                    </p>
-                    <p className="muted text-sm">
-                      {row.service_name} · {formatDateTime(row.starts_at, club.timezone)} ·{' '}
-                      {row.participants} place(s) · asked {formatRelative(row.created_at)}
-                    </p>
-                    {row.client_note && <p className="mt-1 text-sm">“{row.client_note}”</p>}
-                    {row.medical_notes && (
-                      <p className="text-sm text-amber-700 dark:text-amber-300">
-                        Medical: {row.medical_notes}
-                      </p>
-                    )}
-                  </div>
+      <div className="mb-4 flex gap-2 px-5">
+        {[
+          { key: '', label: `Waiting${waiting.length ? ` · ${waiting.length}` : ''}` },
+          { key: 'approved', label: 'Approved' },
+        ].map((tab) => {
+          const active = (tab.key === 'approved') === showApproved
+          return (
+            <a
+              key={tab.key}
+              href={tab.key ? '/instructor/requests?view=approved' : '/instructor/requests'}
+              style={{
+                borderRadius: 999,
+                padding: '8px 16px',
+                fontSize: 13,
+                fontWeight: 800,
+                background: active ? 'var(--color-ins-ink)' : '#fff',
+                color: active ? '#fff' : 'var(--color-ins-ink-2)',
+                border: active ? undefined : '1.5px solid var(--color-ins-line)',
+              }}
+            >
+              {tab.label}
+            </a>
+          )
+        })}
+      </div>
 
-                  <div className="flex flex-col items-end gap-2">
-                    <div className="flex gap-1.5">
-                      <WhatsAppButton phone={row.client_phone} label="" />
-                      <CallButton phone={row.client_phone} label="" />
-                    </div>
-                    <ReservationDecision reservationId={row.reservation_id} />
+      <div className="flex flex-col gap-3 px-5">
+        {list.length === 0 && (
+          <Empty tone="instructor">
+            {showApproved ? 'Nothing approved yet.' : 'Nothing waiting on you.'}
+          </Empty>
+        )}
+
+        {list.map((row) => {
+          const call = telUrl(row.client_phone)
+
+          return (
+            <article key={row.reservation_id} className="i-card" style={{ padding: '15px 18px' }}>
+              <div className="flex items-start gap-3">
+                <Initials
+                  name={row.client_name}
+                  size={40}
+                  background="var(--color-ins-ink)"
+                  color="#fff"
+                  fontSize={14}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p style={{ margin: 0, fontSize: 17, fontWeight: 800 }}>{row.client_name}</p>
+                    {!row.waiver_signed_at && <Flag tone="danger">No waiver</Flag>}
                   </div>
+                  <p
+                    style={{ margin: '2px 0 0', fontSize: 13, fontWeight: 600, color: 'var(--color-ins-ink-2)' }}
+                  >
+                    {row.client_level} · {row.participants} place{row.participants === 1 ? '' : 's'} ·{' '}
+                    {row.revision > 1 ? 'changed, needs re-approval' : `asked ${formatRelative(row.created_at)}`}
+                  </p>
                 </div>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <EmptyState>Nothing waiting on you.</EmptyState>
-        )}
-      </Card>
+                {row.revision > 1 && <InsChip tone="warn">Changed</InsChip>}
+              </div>
 
-      <Card title="Already approved">
-        {approved.length ? (
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Member</th>
-                  <th>Session</th>
-                  <th>When</th>
-                  <th>Places</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {approved.map((row) => (
-                  <tr key={row.reservation_id}>
-                    <td>{row.client_name}</td>
-                    <td>{row.service_name}</td>
-                    <td className="muted text-xs">{formatDateTime(row.starts_at, club.timezone)}</td>
-                    <td className="tabular-nums">{row.participants}</td>
-                    <td>
-                      <StatusBadge status={row.status} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <EmptyState>Nothing approved yet.</EmptyState>
-        )}
-      </Card>
+              <p style={{ margin: '10px 0 0', fontSize: 14, fontWeight: 700 }}>
+                {row.service_name} · {formatDateTime(row.starts_at, club.timezone)}
+              </p>
+
+              {row.client_note && (
+                <p
+                  style={{
+                    margin: '10px 0 0',
+                    background: 'var(--color-ins-ground)',
+                    borderRadius: 12,
+                    padding: '9px 12px',
+                    fontSize: 13,
+                    fontWeight: 600,
+                  }}
+                >
+                  “{row.client_note}”
+                </p>
+              )}
+
+              {row.medical_notes && (
+                <div className="mt-3">
+                  <NotePanel label="Medical">{row.medical_notes}</NotePanel>
+                </div>
+              )}
+
+              <div className="mt-3.5 flex items-center gap-2">
+                <div className="flex-1">
+                  {row.status === 'pending' ? (
+                    <InlineDecision reservationId={row.reservation_id} name={row.client_name} />
+                  ) : (
+                    <InsChip tone="accent">Approved</InsChip>
+                  )}
+                </div>
+                {call && (
+                  <a
+                    href={call}
+                    aria-label={`Call ${row.client_name}`}
+                    className="flex shrink-0 items-center justify-center"
+                    style={{
+                      width: 46,
+                      height: 46,
+                      borderRadius: 14,
+                      border: '1.5px solid var(--color-ins-line)',
+                      background: '#fff',
+                    }}
+                  >
+                    <Phone size={18} />
+                  </a>
+                )}
+              </div>
+            </article>
+          )
+        })}
+      </div>
     </>
   )
 }

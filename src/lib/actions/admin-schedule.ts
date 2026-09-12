@@ -2,11 +2,11 @@
 
 import { revalidatePath } from 'next/cache'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { assertRole } from '@/lib/auth/session'
+import { assertRole, clubIdOf } from '@/lib/auth/session'
 import { getClubSettings } from '@/lib/db/queries'
 import { recordAudit } from '@/lib/audit'
-import { blockSlotSchema, timeSlotSchema } from '@/lib/validation/schemas'
-import { assertSameOrigin, describeDbError, fail, fromZod, ok, type ActionResult } from './result'
+import { blockSlotSchema, cancelSlotSchema, timeSlotSchema } from '@/lib/validation/schemas'
+import { assertSameOrigin, fail, fromZod, ok, failDb, type ActionResult } from './result'
 import { bool, isoFromLocal, optionalStr, str, strList } from './form'
 
 const DENIED = 'You are not allowed to do that.'
@@ -45,6 +45,7 @@ export async function saveTimeSlotAction(
 
   const db = createAdminClient()
   const row = {
+    club_id: clubIdOf(admin),
     service_id: parsed.data.serviceId,
     starts_at: parsed.data.startsAt,
     ends_at: parsed.data.endsAt,
@@ -77,24 +78,25 @@ export async function saveTimeSlotAction(
     ? await db.from('time_slots').update(row).eq('id', parsed.data.id).select('id').single()
     : await db.from('time_slots').insert(row).select('id').single()
 
-  if (error || !slot) return fail(describeDbError(error, 'Could not save the session.'))
+  if (error || !slot) return failDb(error, 'Could not save the session.')
 
   const { error: clearError } = await db
     .from('time_slot_instructors')
     .delete()
     .eq('slot_id', slot.id)
-  if (clearError) return fail(describeDbError(clearError, 'Could not update the instructors.'))
+  if (clearError) return failDb(clearError, 'Could not update the instructors.')
 
   if (parsed.data.instructorIds.length > 0) {
     const { error: assignError } = await db.from('time_slot_instructors').insert(
       parsed.data.instructorIds.map((instructorId, index) => ({
+        club_id: clubIdOf(admin),
         slot_id: slot.id,
         instructor_id: instructorId,
         is_lead: index === 0,
         assigned_by: admin.id,
       })),
     )
-    if (assignError) return fail(describeDbError(assignError, 'Could not assign those instructors.'))
+    if (assignError) return failDb(assignError, 'Could not assign those instructors.')
   }
 
   await recordAudit({
@@ -140,7 +142,7 @@ export async function blockSlotAction(
     })
     .eq('id', parsed.data.slotId)
 
-  if (error) return fail(describeDbError(error, 'Could not change the session.'))
+  if (error) return failDb(error, 'Could not change the session.')
 
   await recordAudit({
     actorId: admin.id,
@@ -168,15 +170,20 @@ export async function cancelSlotAction(
   const admin = await assertRole('admin')
   if (!admin) return fail(DENIED)
 
-  const slotId = str(formData, 'slotId')
-  const reason = str(formData, 'reason').slice(0, 500)
+  const parsed = cancelSlotSchema.safeParse({
+    slotId: str(formData, 'slotId'),
+    reason: optionalStr(formData, 'reason'),
+  })
+  if (!parsed.success) return fromZod(parsed.error)
+  const { slotId } = parsed.data
+  const reason = parsed.data.reason ?? ''
 
   const { error } = await createAdminClient()
     .from('time_slots')
     .update({ status: 'cancelled', block_reason: reason || 'Cancelled by the club' })
     .eq('id', slotId)
 
-  if (error) return fail(describeDbError(error, 'Could not cancel the session.'))
+  if (error) return failDb(error, 'Could not cancel the session.')
 
   await recordAudit({
     actorId: admin.id,

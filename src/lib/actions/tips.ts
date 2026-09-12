@@ -3,17 +3,15 @@
 import { redirect } from 'next/navigation'
 import { createUserClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { assertRole } from '@/lib/auth/session'
+import { assertRole, clubIdOf, requireRoleForAction } from '@/lib/auth/session'
 import { getClubSettings } from '@/lib/db/queries'
 import { recordAudit } from '@/lib/audit'
 import { rateLimit } from '@/lib/util/rate-limit'
 import { publicEnv } from '@/lib/env'
-import { paymentProvider } from '@/lib/payments'
+import { createClubCheckout, paymentProvider, PayoutsNotReady } from '@/lib/payments'
 import { tipSchema } from '@/lib/validation/schemas'
-import { assertSameOrigin, describeDbError, fail, fromZod, type ActionResult } from './result'
+import { assertSameOrigin, fail, fromZod, failDb, type ActionResult } from './result'
 import { optionalStr, str } from './form'
-
-const DENIED = 'You are not allowed to do that.'
 
 /**
  * Tip an instructor.
@@ -32,8 +30,9 @@ export async function createTipCheckoutAction(
   formData: FormData,
 ): Promise<ActionResult<null>> {
   if (!(await assertSameOrigin())) return fail('Request blocked.')
-  const user = await assertRole('client')
-  if (!user) return fail(DENIED)
+  const guard = await requireRoleForAction(['client'], '/client/bookings')
+  if (!guard.ok) return fail(guard.error)
+  const user = guard.user
 
   const club = await getClubSettings()
   if (!club.tips_enabled) return fail('Tipping is switched off at the moment.')
@@ -65,6 +64,7 @@ export async function createTipCheckoutAction(
   const { data: payment, error: paymentError } = await db
     .from('payments')
     .insert({
+      club_id: clubIdOf(user),
       client_id: user.id,
       kind: 'tip',
       amount_cents: parsed.data.amountCents,
@@ -82,14 +82,14 @@ export async function createTipCheckoutAction(
     .single()
 
   if (paymentError || !payment) {
-    return fail(describeDbError(paymentError, 'Could not start the payment.'))
+    return failDb(paymentError, 'Could not start the payment.')
   }
 
   const site = publicEnv.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '')
   let checkoutUrl: string
 
   try {
-    const session = await provider.createCheckout({
+    const session = await createClubCheckout(clubIdOf(user), {
       paymentId: payment.id,
       kind: 'tip',
       amountCents: parsed.data.amountCents,
@@ -103,7 +103,12 @@ export async function createTipCheckoutAction(
 
     await db
       .from('payments')
-      .update({ provider_ref: session.reference, status: 'processing' })
+      .update({
+        provider_ref: session.reference,
+        status: 'processing',
+        account_id: session.account.account_id,
+        platform_fee_cents: session.feeCents,
+      })
       .eq('id', payment.id)
 
     checkoutUrl = session.url
@@ -113,6 +118,9 @@ export async function createTipCheckoutAction(
       .from('payments')
       .update({ status: 'failed', failure_reason: 'Could not open a checkout session' })
       .eq('id', payment.id)
+    if (error instanceof PayoutsNotReady) {
+      return fail('Payments: the club has not connected its payout account yet, so tips cannot be taken online. Tip in person for now.')
+    }
     return fail('The payment provider is not reachable right now. Please try again shortly.')
   }
 

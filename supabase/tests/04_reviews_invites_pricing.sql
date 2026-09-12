@@ -108,8 +108,8 @@ select test.rejects(
 -- ---------------------------------------------------------------------------
 select test.act_as_server();
 
-insert into public.registration_invites (token_hash, role, email, expires_at, created_by)
-values (encode(extensions.digest('a-test-token', 'sha256'), 'hex'), 'client', 'new@test.local',
+insert into public.registration_invites (club_id, token_hash, role, email, expires_at, created_by)
+values ((select club_id from public.profiles where id = '11111111-1111-1111-1111-111111111111'), encode(extensions.digest('a-test-token', 'sha256'), 'hex'), 'client', 'new@test.local',
         now() + interval '3 days', '11111111-1111-1111-1111-111111111111');
 
 select test.act_as('44444444-4444-4444-4444-444444444444');
@@ -155,8 +155,8 @@ select test.check(
 select test.act_as_server();
 
 -- An instructor cannot be in two places at once.
-insert into public.time_slots (id, service_id, starts_at, ends_at, capacity)
-values ('aaaaaaaa-0000-0000-0000-000000000003', :'svc_id',
+insert into public.time_slots (id, club_id, service_id, starts_at, ends_at, capacity)
+values ('aaaaaaaa-0000-0000-0000-000000000003', (select club_id from public.services where id = :'svc_id'), :'svc_id',
         now() + interval '7 days 30 minutes', now() + interval '7 days 120 minutes', 5);
 
 select test.rejects(

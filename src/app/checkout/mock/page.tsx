@@ -3,7 +3,7 @@ import { requireUser } from '@/lib/auth/session'
 import { serverEnv } from '@/lib/env'
 import { formatMoney } from '@/lib/util/format'
 import { Alert, Card } from '@/components/ui'
-import { MockCheckoutForm } from './form'
+import { MockCheckoutForm, MockSubscriptionForm } from './form'
 
 export const metadata = { title: 'Checkout (test mode)' }
 export const dynamic = 'force-dynamic'
@@ -25,10 +25,11 @@ export default async function MockCheckoutPage({
   }
 
   const paymentId = one('payment')
+  const subscriptionId = one('subscription')
   const amountCents = Number(one('amount'))
   const currency = one('currency') || 'ILS'
 
-  if (!paymentId || !Number.isFinite(amountCents) || amountCents <= 0) notFound()
+  if ((!paymentId && !subscriptionId) || !Number.isFinite(amountCents) || amountCents <= 0) notFound()
 
   return (
     <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-4 py-10">
@@ -36,7 +37,7 @@ export default async function MockCheckoutPage({
         <div className="space-y-4">
           <Alert tone="info">
             No card is charged. Confirming here posts a signed event to the same webhook the real
-            provider would call.
+            provider would call.{subscriptionId ? ' This one activates the club\u2019s monthly plan.' : ''}
           </Alert>
 
           <div>
@@ -46,13 +47,22 @@ export default async function MockCheckoutPage({
             </p>
           </div>
 
-          <MockCheckoutForm
-            paymentId={paymentId}
-            amountCents={amountCents}
-            currency={currency}
-            next={one('next')}
-            cancel={one('cancel')}
-          />
+          {subscriptionId ? (
+            <MockSubscriptionForm
+              subscriptionId={subscriptionId}
+              planKey={one('plan')}
+              next={one('next')}
+              cancel={one('cancel')}
+            />
+          ) : (
+            <MockCheckoutForm
+              paymentId={paymentId}
+              amountCents={amountCents}
+              currency={currency}
+              next={one('next')}
+              cancel={one('cancel')}
+            />
+          )}
         </div>
       </Card>
     </div>

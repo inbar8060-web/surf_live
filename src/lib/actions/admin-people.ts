@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { assertRole } from '@/lib/auth/session'
+import { assertRole, clubIdOf } from '@/lib/auth/session'
 import { recordAudit } from '@/lib/audit'
 import { publicEnv } from '@/lib/env'
 import { generateInviteToken, inviteUrl } from '@/lib/util/invites'
@@ -10,11 +10,12 @@ import { rateLimit } from '@/lib/util/rate-limit'
 import {
   createInviteSchema,
   createUserSchema,
+  idOnly,
   updateClientSchema,
   updateInstructorSchema,
   updateProfileSchema,
 } from '@/lib/validation/schemas'
-import { assertSameOrigin, describeDbError, fail, fromZod, ok, type ActionResult } from './result'
+import { assertSameOrigin, fail, fromZod, ok, failDb, type ActionResult } from './result'
 import { bool, commaList, optionalStr, str } from './form'
 
 const DENIED = 'You are not allowed to do that.'
@@ -55,6 +56,7 @@ export async function createInviteAction(
   const { data, error } = await createAdminClient()
     .from('registration_invites')
     .insert({
+      club_id: clubIdOf(admin),
       token_hash: tokenHash,
       role: parsed.data.role,
       email: parsed.data.email || null,
@@ -67,7 +69,7 @@ export async function createInviteAction(
     .select('id')
     .single()
 
-  if (error || !data) return fail(describeDbError(error, 'Could not create the invitation.'))
+  if (error || !data) return failDb(error, 'Could not create the invitation.')
 
   await recordAudit({
     actorId: admin.id,
@@ -93,14 +95,17 @@ export async function revokeInviteAction(
   const admin = await assertRole('admin')
   if (!admin) return fail(DENIED)
 
-  const inviteId = str(formData, 'inviteId')
+  const parsed = idOnly('inviteId').safeParse({ inviteId: str(formData, 'inviteId') })
+  if (!parsed.success) return fromZod(parsed.error)
+  const { inviteId } = parsed.data
+
   const { error } = await createAdminClient()
     .from('registration_invites')
     .update({ revoked_at: new Date().toISOString() })
     .eq('id', inviteId)
     .is('used_at', null)
 
-  if (error) return fail(describeDbError(error, 'Could not revoke the invitation.'))
+  if (error) return failDb(error, 'Could not revoke the invitation.')
 
   await recordAudit({
     actorId: admin.id,
@@ -142,6 +147,8 @@ export async function createUserAction(
     email_confirm: true,
     app_metadata: {
       role: parsed.data.role,
+      // the new account belongs to the administrator's club, and no other
+      club_id: clubIdOf(admin),
       full_name: parsed.data.fullName,
       phone: parsed.data.phone || null,
     },
@@ -201,6 +208,7 @@ export async function updateProfileAction(
     .single()
 
   if (!before) return fail('That account no longer exists.')
+  if (before.club_id !== clubIdOf(admin)) return fail(DENIED)
 
   // Deactivating yourself would lock you out mid-session.
   if (parsed.data.profileId === admin.id && !parsed.data.isActive) {
@@ -218,7 +226,7 @@ export async function updateProfileAction(
     })
     .eq('id', parsed.data.profileId)
 
-  if (error) return fail(describeDbError(error, 'Could not save those changes.'))
+  if (error) return failDb(error, 'Could not save those changes.')
 
   // Keep the auth record in step so the role in the JWT and the login email match.
   if (parsed.data.email && parsed.data.email !== before.email) {
@@ -226,7 +234,7 @@ export async function updateProfileAction(
   }
   if (parsed.data.role !== before.role) {
     await db.auth.admin.updateUserById(parsed.data.profileId, {
-      app_metadata: { role: parsed.data.role },
+      app_metadata: { role: parsed.data.role, club_id: before.club_id },
     })
   }
 
@@ -287,7 +295,7 @@ export async function updateClientAction(
     })
     .eq('profile_id', parsed.data.profileId)
 
-  if (error) return fail(describeDbError(error, 'Could not save those changes.'))
+  if (error) return failDb(error, 'Could not save those changes.')
 
   await recordAudit({
     actorId: admin.id,
@@ -340,7 +348,7 @@ export async function updateInstructorAction(
     })
     .eq('profile_id', parsed.data.profileId)
 
-  if (error) return fail(describeDbError(error, 'Could not save those changes.'))
+  if (error) return failDb(error, 'Could not save those changes.')
 
   await recordAudit({
     actorId: user.id,

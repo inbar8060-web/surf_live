@@ -14,6 +14,11 @@ const publicSchema = z.object({
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(20),
   NEXT_PUBLIC_SITE_URL: z.string().url(),
   NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: z.string().optional(),
+  /**
+   * The domain every club lives under: <slug>.<this>. Locally "localhost:3000"
+   * — browsers resolve *.localhost to the machine without any DNS setup.
+   */
+  NEXT_PUBLIC_PLATFORM_DOMAIN: z.string().min(3),
 })
 
 const serverSchema = z.object({
@@ -22,6 +27,19 @@ const serverSchema = z.object({
   PAYMENT_PROVIDER: z.enum(['stripe', 'mock']).default('mock'),
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  // Signing secret of the *Connect* webhook endpoint — events from the clubs'
+  // connected accounts arrive signed with this one, platform events with the other.
+  STRIPE_CONNECT_WEBHOOK_SECRET: z.string().optional(),
+  // Only the development 'log' provider exists so far; the club's real mailing
+  // system is dropped in later behind the same interface.
+  MAIL_PROVIDER: z.enum(['log']).default('log'),
+  MAIL_FROM: z.string().default('Surfer Live <no-reply@surferlive.local>'),
+  // Support assistant. Optional: without it the support screen still works as
+  // a plain message thread to the platform, just without the assistant.
+  ANTHROPIC_API_KEY: z.string().optional(),
+  // Google Places + Time Zone APIs, used to read a club's listing from its Maps
+  // link at provisioning. Optional: without it only the link itself is read.
+  GOOGLE_MAPS_API_KEY: z.string().optional(),
   MARINE_API_BASE: z.string().url().default('https://marine-api.open-meteo.com/v1/marine'),
   WEATHER_API_BASE: z.string().url().default('https://api.open-meteo.com/v1/forecast'),
 })
@@ -45,6 +63,7 @@ export const publicEnv = parse(
     NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
     NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
+    NEXT_PUBLIC_PLATFORM_DOMAIN: process.env.NEXT_PUBLIC_PLATFORM_DOMAIN,
   },
   'public',
 )

@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next'
+import { fontVariables } from '@/lib/fonts'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -10,15 +11,18 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#f6f8fa' },
-    { media: '(prefers-color-scheme: dark)', color: '#0a1620' },
-  ],
+  viewportFit: 'cover', // so the tab bars can pad past the home indicator
+  themeColor: '#072f49',
 }
 
+/**
+ * All three font families are declared here so next/font can hash and preload
+ * them once. Each area's layout then selects the family it needs off the
+ * token, rather than every page shipping all three.
+ */
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className={fontVariables}>
       <body>{children}</body>
     </html>
   )

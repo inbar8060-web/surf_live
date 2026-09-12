@@ -8,11 +8,19 @@ export function InviteForm({
   token,
   prefill,
   lockEmail,
+  role,
 }: {
   token: string
   prefill: { fullName: string; email: string; phone: string }
   lockEmail: boolean
+  role: string
 }) {
+  const documents = role === 'admin' ? ['terms', 'privacy', 'club_agreement'] : ['terms', 'privacy']
+  const titles: Record<string, string> = {
+    terms: 'Terms of Service',
+    privacy: 'Privacy Policy',
+    club_agreement: 'Club Service Agreement',
+  }
   return (
     <ActionForm action={acceptInviteAction}>
       {({ fieldErrors }) => (
@@ -72,7 +80,20 @@ export function InviteForm({
           <label className="flex items-start gap-2 text-sm">
             <input type="checkbox" name="acceptedTerms" className="mt-1" required />
             <span>
-              I accept the club&apos;s terms and confirm I am fit to take part in water activities.
+              {role === 'admin' ? (
+                <>I am authorised to act for the club and I accept the </>
+              ) : (
+                <>I confirm I am fit to take part in water activities and I accept the </>
+              )}
+              {documents.map((key, i) => (
+                <span key={key}>
+                  {i > 0 && (i === documents.length - 1 ? ' and the ' : ', the ')}
+                  <a href={`/legal/${key}`} target="_blank" rel="noreferrer" className="underline">
+                    {titles[key]}
+                  </a>
+                </span>
+              ))}
+              .
             </span>
           </label>
           {fieldErrors.acceptedTerms && <p className="field-error">{fieldErrors.acceptedTerms}</p>}

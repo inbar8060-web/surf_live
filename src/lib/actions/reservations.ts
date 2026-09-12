@@ -3,15 +3,18 @@
 import { revalidatePath } from 'next/cache'
 import { createUserClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { assertRole, getSessionUser } from '@/lib/auth/session'
+import { assertRole, clubIdOf, getSessionUser, requireRoleForAction } from '@/lib/auth/session'
 import { recordAudit } from '@/lib/audit'
 import { rateLimit } from '@/lib/util/rate-limit'
 import {
   amendReservationSchema,
   createReservationSchema,
   decideReservationSchema,
+  idOnly,
+  staffBookSchema,
+  staffNoteSchema,
 } from '@/lib/validation/schemas'
-import { assertSameOrigin, describeDbError, fail, fromZod, ok, type ActionResult } from './result'
+import { assertSameOrigin, fail, fromZod, ok, failDb, type ActionResult } from './result'
 import { optionalStr, str } from './form'
 
 const DENIED = 'You are not allowed to do that.'
@@ -29,8 +32,9 @@ export async function requestReservationAction(
   formData: FormData,
 ): Promise<ActionResult<{ id: string }>> {
   if (!(await assertSameOrigin())) return fail('Request blocked.')
-  const user = await assertRole('client')
-  if (!user) return fail(DENIED)
+  const guard = await requireRoleForAction(['client'], '/client')
+  if (!guard.ok) return fail(guard.error)
+  const user = guard.user
 
   const parsed = createReservationSchema.safeParse({
     slotId: str(formData, 'slotId'),
@@ -56,7 +60,7 @@ export async function requestReservationAction(
     .select('id')
     .single()
 
-  if (error || !data) return fail(describeDbError(error, 'Could not send that request.'))
+  if (error || !data) return failDb(error, 'Could not send that request.')
 
   await recordAudit({
     actorId: user.id,
@@ -84,8 +88,9 @@ export async function amendReservationAction(
   formData: FormData,
 ): Promise<ActionResult<null>> {
   if (!(await assertSameOrigin())) return fail('Request blocked.')
-  const user = await assertRole('client')
-  if (!user) return fail(DENIED)
+  const guard = await requireRoleForAction(['client'], '/client')
+  if (!guard.ok) return fail(guard.error)
+  const user = guard.user
 
   const parsed = amendReservationSchema.safeParse({
     reservationId: str(formData, 'reservationId'),
@@ -106,7 +111,7 @@ export async function amendReservationAction(
     .select('id, status, revision')
     .maybeSingle()
 
-  if (error) return fail(describeDbError(error, 'Could not change that booking.'))
+  if (error) return failDb(error, 'Could not change that booking.')
   if (!data) return fail('That booking could not be found.')
 
   await recordAudit({
@@ -134,10 +139,14 @@ export async function cancelReservationAction(
   formData: FormData,
 ): Promise<ActionResult<null>> {
   if (!(await assertSameOrigin())) return fail('Request blocked.')
-  const user = await assertRole('client')
-  if (!user) return fail(DENIED)
+  const guard = await requireRoleForAction(['client'], '/client')
+  if (!guard.ok) return fail(guard.error)
+  const user = guard.user
 
-  const reservationId = str(formData, 'reservationId')
+  const parsed = idOnly('reservationId').safeParse({ reservationId: str(formData, 'reservationId') })
+  if (!parsed.success) return fromZod(parsed.error)
+  const { reservationId } = parsed.data
+
   const supabase = await createUserClient()
 
   const { data, error } = await supabase
@@ -148,7 +157,7 @@ export async function cancelReservationAction(
     .select('id')
     .maybeSingle()
 
-  if (error) return fail(describeDbError(error, 'Could not cancel that booking.'))
+  if (error) return failDb(error, 'Could not cancel that booking.')
   if (!data) return fail('That booking could not be found.')
 
   await recordAudit({
@@ -177,8 +186,11 @@ export async function decideReservationAction(
   formData: FormData,
 ): Promise<ActionResult<null>> {
   if (!(await assertSameOrigin())) return fail('Request blocked.')
-  const user = await assertRole('admin', 'instructor')
-  if (!user) return fail(DENIED)
+  // Instructors decide requests on a phone, often from a page that has been
+  // open a while, so a lapsed session gets a route back rather than a refusal.
+  const guard = await requireRoleForAction(['admin', 'instructor'], '/instructor/requests')
+  if (!guard.ok) return fail(guard.error)
+  const user = guard.user
 
   const parsed = decideReservationSchema.safeParse({
     reservationId: str(formData, 'reservationId'),
@@ -202,7 +214,7 @@ export async function decideReservationAction(
     .select('id, client_id, slot_id, status')
     .maybeSingle()
 
-  if (error) return fail(describeDbError(error, 'Could not record that decision.'))
+  if (error) return failDb(error, 'Could not record that decision.')
   if (!data) return fail('That request is not one you can decide.')
 
   await recordAudit({
@@ -234,8 +246,13 @@ export async function setStaffNoteAction(
   const user = await assertRole('admin', 'instructor')
   if (!user) return fail(DENIED)
 
-  const reservationId = str(formData, 'reservationId')
-  const note = str(formData, 'staffNote').slice(0, 1000)
+  const parsed = staffNoteSchema.safeParse({
+    reservationId: str(formData, 'reservationId'),
+    staffNote: optionalStr(formData, 'staffNote'),
+  })
+  if (!parsed.success) return fromZod(parsed.error)
+  const { reservationId } = parsed.data
+  const note = parsed.data.staffNote ?? ''
 
   // An instructor may only annotate a session they actually teach.
   if (user.profile.role === 'instructor') {
@@ -253,7 +270,7 @@ export async function setStaffNoteAction(
     .update({ staff_note: note || null })
     .eq('id', reservationId)
 
-  if (error) return fail(describeDbError(error, 'Could not save that note.'))
+  if (error) return failDb(error, 'Could not save that note.')
 
   await recordAudit({
     actorId: user.id,
@@ -277,19 +294,19 @@ export async function staffBookClientAction(
   const admin = await assertRole('admin')
   if (!admin) return fail(DENIED)
 
-  const clientId = str(formData, 'clientId')
-  const slotId = str(formData, 'slotId')
-  const participants = Number(str(formData, 'participants') || 1)
-  const clientPackageId = optionalStr(formData, 'clientPackageId')
-
-  if (!clientId || !slotId) return fail('Pick both a client and a session.')
-  if (!Number.isInteger(participants) || participants < 1 || participants > 20) {
-    return fail('That is not a valid number of places.')
-  }
+  const parsed = staffBookSchema.safeParse({
+    clientId: str(formData, 'clientId'),
+    slotId: str(formData, 'slotId'),
+    participants: str(formData, 'participants') || 1,
+    clientPackageId: optionalStr(formData, 'clientPackageId'),
+  })
+  if (!parsed.success) return fromZod(parsed.error)
+  const { clientId, slotId, participants, clientPackageId } = parsed.data
 
   const { data, error } = await createAdminClient()
     .from('reservations')
     .insert({
+      club_id: clubIdOf(admin),
       client_id: clientId,
       slot_id: slotId,
       participants,
@@ -301,7 +318,7 @@ export async function staffBookClientAction(
     .select('id')
     .single()
 
-  if (error || !data) return fail(describeDbError(error, 'Could not book that client in.'))
+  if (error || !data) return failDb(error, 'Could not book that client in.')
 
   await recordAudit({
     actorId: admin.id,

@@ -1,3 +1,5 @@
+import { fromZonedTime } from 'date-fns-tz'
+
 /**
  * Money is stored and moved as integer minor units. It is only ever turned
  * into a decimal string here, at the edge, so no arithmetic ever touches a
@@ -48,4 +50,33 @@ export function formatRelative(iso: string, locale = 'en'): string {
     if (Math.abs(diffMs) >= ms) return rtf.format(Math.round(diffMs / ms), unit)
   }
   return rtf.format(Math.round(diffMs / 1000), 'second')
+}
+
+/* ---------------------------------------------------------------- day math */
+
+/**
+ * "Today" at the club, as YYYY-MM-DD.
+ *
+ * Deliberately not `new Date().toISOString().slice(0, 10)`: that is the UTC
+ * date, so an instructor opening the app at half past midnight in Israel would
+ * be shown yesterday's sessions. The club's own clock is the only one that
+ * matters for a day's schedule.
+ */
+export function todayInZone(timeZone: string): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    timeZone,
+  }).format(new Date())
+}
+
+/**
+ * The half-open instant range covering one club-local day, for querying
+ * timestamptz columns. Midnight at the club is not midnight on the server.
+ */
+export function dayRangeInZone(isoDate: string, timeZone: string): { from: string; to: string } {
+  const start = fromZonedTime(`${isoDate}T00:00:00`, timeZone)
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000)
+  return { from: start.toISOString(), to: end.toISOString() }
 }

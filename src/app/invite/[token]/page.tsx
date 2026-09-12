@@ -60,6 +60,7 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
               phone: invite?.phone ?? '',
             }}
             lockEmail={Boolean(invite?.email)}
+            role={invite?.role ?? 'client'}
           />
         )}
       </div>

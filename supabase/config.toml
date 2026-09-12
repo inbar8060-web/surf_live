@@ -18,6 +18,10 @@ port = 54323
 
 [auth]
 enabled = true
+# The app's own forms require 12 characters. The auth server must enforce the
+# same floor, or a password-reset email (which never passes through the app's
+# validation) would accept a six-character password.
+minimum_password_length = 12
 site_url = "http://localhost:3000"
 additional_redirect_urls = ["http://localhost:3000/auth/callback"]
 jwt_expiry = 3600
@@ -28,7 +32,11 @@ enable_signup = false
 enable_anonymous_sign_ins = false
 
 [auth.email]
-enable_signup = false
+# Must stay TRUE: this flag is the email provider itself (GOTRUE_EXTERNAL_EMAIL_ENABLED).
+# Setting it false disables email *logins* as well as signups and locks everyone
+# out. Public self-registration is blocked by `enable_signup = false` under
+# [auth] above, which is the flag that actually means "no open signups".
+enable_signup = true
 enable_confirmations = true
 secure_password_change = true
 
@@ -36,6 +44,6 @@ secure_password_change = true
 timebox = "24h"
 inactivity_timeout = "8h"
 
-[inbucket]
+[local_smtp]
 enabled = true
 port = 54324

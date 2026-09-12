@@ -2,7 +2,8 @@
 
 import { revalidatePath } from 'next/cache'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { assertRole } from '@/lib/auth/session'
+import { createUserClient } from '@/lib/supabase/server'
+import { assertRole, clubIdOf } from '@/lib/auth/session'
 import { recordAudit } from '@/lib/audit'
 import {
   createRentalSchema,
@@ -12,7 +13,7 @@ import {
   returnRentalSchema,
   setQuantitySchema,
 } from '@/lib/validation/schemas'
-import { assertSameOrigin, describeDbError, fail, fromZod, ok, type ActionResult } from './result'
+import { assertSameOrigin, fail, fromZod, ok, failDb, type ActionResult } from './result'
 import { bool, optionalStr, str } from './form'
 
 const DENIED = 'You are not allowed to do that.'
@@ -41,6 +42,7 @@ export async function saveInventoryTypeAction(
 
   const db = createAdminClient()
   const row = {
+    club_id: clubIdOf(admin),
     category_id: parsed.data.categoryId || null,
     name: parsed.data.name,
     kind: parsed.data.kind,
@@ -54,7 +56,7 @@ export async function saveInventoryTypeAction(
     ? await db.from('inventory_types').update(row).eq('id', parsed.data.id)
     : await db.from('inventory_types').insert(row)
 
-  if (error) return fail(describeDbError(error, 'Could not save that gear type.'))
+  if (error) return failDb(error, 'Could not save that gear type.')
 
   await recordAudit({
     actorId: admin.id,
@@ -90,12 +92,12 @@ export async function setQuantityAction(
   })
   if (!parsed.success) return fromZod(parsed.error)
 
-  const { data, error } = await createAdminClient().rpc('set_inventory_quantity', {
+  const { data, error } = await (await createUserClient()).rpc('set_inventory_quantity', {
     p_type_id: parsed.data.typeId,
     p_desired: parsed.data.quantity,
   })
 
-  if (error) return fail(describeDbError(error, 'Could not change the quantity.'))
+  if (error) return failDb(error, 'Could not change the quantity.')
 
   const result = Array.isArray(data) ? data[0] : null
   const total = result?.total_units ?? parsed.data.quantity
@@ -147,7 +149,7 @@ export async function setItemStatusAction(
     .update({ status: parsed.data.status, notes: parsed.data.notes || null })
     .eq('id', parsed.data.itemId)
 
-  if (error) return fail(describeDbError(error, 'Could not update that unit.'))
+  if (error) return failDb(error, 'Could not update that unit.')
 
   await recordAudit({
     actorId: admin.id,
@@ -191,6 +193,7 @@ export async function createRentalAction(
   const { data, error } = await createAdminClient()
     .from('rentals')
     .insert({
+      club_id: clubIdOf(admin),
       client_id: parsed.data.clientId,
       item_id: parsed.data.itemId,
       start_date: parsed.data.startDate,
@@ -201,7 +204,7 @@ export async function createRentalAction(
     .select('id, price_cents, currency')
     .single()
 
-  if (error || !data) return fail(describeDbError(error, 'Could not create the rental.'))
+  if (error || !data) return failDb(error, 'Could not create the rental.')
 
   await recordAudit({
     actorId: admin.id,
@@ -241,7 +244,7 @@ export async function setRentalStatusAction(
     .update({ status: parsed.data.status })
     .eq('id', parsed.data.rentalId)
 
-  if (error) return fail(describeDbError(error, 'Could not update the rental.'))
+  if (error) return failDb(error, 'Could not update the rental.')
 
   await recordAudit({
     actorId: admin.id,
@@ -286,7 +289,7 @@ export async function returnRentalAction(
     })
     .eq('id', parsed.data.rentalId)
 
-  if (error) return fail(describeDbError(error, 'Could not book that board back in.'))
+  if (error) return failDb(error, 'Could not book that board back in.')
 
   await recordAudit({
     actorId: admin.id,

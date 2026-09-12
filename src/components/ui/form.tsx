@@ -22,14 +22,17 @@ export function SubmitButton({
   confirm,
   name,
   value,
+  className,
 }: {
   children?: ReactNode
+  /** Ignored when `className` is supplied — the interface sets its own look. */
   variant?: ButtonVariant
   size?: 'sm' | 'md'
   pendingLabel?: string
   confirm?: string
   name?: string
   value?: string
+  className?: string
 }) {
   const { pending } = useFormStatus()
 
@@ -40,7 +43,7 @@ export function SubmitButton({
       value={value}
       disabled={pending}
       aria-busy={pending}
-      className={buttonClass(variant, size)}
+      className={className ?? buttonClass(variant, size)}
       onClick={(event) => {
         if (confirm && !window.confirm(confirm)) event.preventDefault()
       }}

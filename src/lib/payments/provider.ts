@@ -5,14 +5,19 @@ import type { PaymentKind } from '@/lib/db/types'
 /**
  * Payment provider seam.
  *
- * The rest of the application only knows this interface, so swapping Stripe
- * for a local acquirer (Tranzila, Cardcom, PayPlus …) means writing one file
- * and changing PAYMENT_PROVIDER — no call site moves.
+ * The rest of the application only knows this interface. It covers three
+ * things a multi-club platform needs from a payment service:
+ *
+ *   1. charging a member, through the *club's own* connected account, with
+ *      the platform's share taken at the same time;
+ *   2. billing the club for its plan (a monthly subscription to the platform);
+ *   3. connecting the club's payout account — hosted onboarding, and the
+ *      account's state afterwards.
  *
  * Two invariants hold for every implementation:
- *   1. The amount is decided by our server, never posted from the browser.
- *   2. A charge is only ever marked paid from a signature-verified webhook,
- *      never from the browser's return trip.
+ *   - The amount is decided by our server, never posted from the browser.
+ *   - Nothing becomes "paid", "active" or "connected" except from a
+ *     signature-verified webhook. The browser's return trip is a hint.
  */
 
 export interface CheckoutRequest {
@@ -26,6 +31,10 @@ export interface CheckoutRequest {
   successUrl: string
   cancelUrl: string
   metadata?: Record<string, string>
+  /** The club's connected account. The charge is made *on* it; the club is the merchant. */
+  connectedAccountId?: string | null
+  /** The platform's share, already computed from the club's fee rate. */
+  applicationFeeCents?: number
 }
 
 export interface CheckoutSession {
@@ -35,23 +44,95 @@ export interface CheckoutSession {
   reference: string
 }
 
-/** Normalised webhook outcome. */
-export interface PaymentEvent {
-  type: 'succeeded' | 'failed' | 'cancelled' | 'refunded' | 'ignored'
-  paymentId: string | null
-  reference: string | null
-  amountCents: number | null
-  currency: string | null
-  failureReason?: string | null
+export interface SubscriptionCheckoutRequest {
+  /** Our club_subscriptions row id; comes back in the webhook. */
+  subscriptionId: string
+  clubId: string
+  clubName: string
+  planKey: string
+  planName: string
+  priceCents: number
+  currency: string
+  customerEmail?: string | null
+  existingCustomerId?: string | null
+  successUrl: string
+  cancelUrl: string
 }
+
+export interface ConnectOnboardingRequest {
+  clubId: string
+  clubName: string
+  email: string
+  country?: string | null
+  /** Resume an account that was started but not finished. */
+  existingAccountId?: string | null
+  /** Where the provider sends the browser if the onboarding link expires. */
+  refreshUrl: string
+  returnUrl: string
+}
+
+export interface ConnectAccountState {
+  accountId: string
+  chargesEnabled: boolean
+  payoutsEnabled: boolean
+  detailsSubmitted: boolean
+  requirementsDue: string[]
+  country: string | null
+  defaultCurrency: string | null
+}
+
+/** Everything a verified webhook can tell us, normalised. */
+export type ProviderEvent =
+  | {
+      kind: 'payment'
+      type: 'succeeded' | 'failed' | 'cancelled' | 'refunded'
+      paymentId: string | null
+      reference: string | null
+      amountCents: number | null
+      currency: string | null
+      failureReason?: string | null
+      /** The connected account the event arrived from, when it did. */
+      accountId: string | null
+    }
+  | {
+      kind: 'subscription'
+      type: 'activated' | 'updated' | 'past_due' | 'canceled'
+      /** Our club_subscriptions row id, from the metadata we attached. */
+      subscriptionId: string | null
+      providerSubscriptionId: string | null
+      providerCustomerId: string | null
+      planKey: string | null
+      periodStart: string | null
+      periodEnd: string | null
+    }
+  | { kind: 'account'; state: ConnectAccountState }
+  | { kind: 'ignored' }
+
+export const IGNORED: ProviderEvent = { kind: 'ignored' }
 
 export interface PaymentProvider {
   readonly name: 'stripe' | 'mock'
+
   createCheckout(request: CheckoutRequest): Promise<CheckoutSession>
+
+  createSubscriptionCheckout(request: SubscriptionCheckoutRequest): Promise<CheckoutSession>
+  /** Move a live subscription to another plan, prorated. Returns the new period end when known. */
+  changeSubscriptionPlan(
+    providerSubscriptionId: string,
+    plan: { key: string; name: string; priceCents: number; currency: string },
+  ): Promise<{ periodEnd: string | null }>
+  cancelSubscription(providerSubscriptionId: string): Promise<void>
+
+  createConnectOnboarding(request: ConnectOnboardingRequest): Promise<{ accountId: string; url: string }>
+  /** The account's current state, or null when the provider holds none (the mock). */
+  fetchConnectAccount(accountId: string): Promise<ConnectAccountState | null>
+  /** A one-time link into the club's own dashboard at the provider, when it offers one. */
+  createConnectLoginLink(accountId: string): Promise<string | null>
+
   /**
    * Verify the signature and normalise the payload. Must throw if the
    * signature does not check out — an unverified webhook is an attacker
    * telling us an invoice was paid.
    */
-  parseWebhook(rawBody: string, signature: string | null): Promise<PaymentEvent>
+  parseWebhook(rawBody: string, signature: string | null): Promise<ProviderEvent>
 }

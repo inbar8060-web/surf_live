@@ -1,5 +1,58 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
+import { parseHost } from '@/lib/tenant-host'
+
+/**
+ * Build the Content-Security-Policy for one request.
+ *
+ * A fresh nonce per request is what allows Next.js's inline bootstrap scripts
+ * to run while `unsafe-inline` stays off. `strict-dynamic` then lets those
+ * trusted scripts pull in the chunks they need, so the policy does not have to
+ * enumerate every asset path.
+ *
+ * Development additionally needs `unsafe-eval`: the dev compiler and
+ * hot reloading both evaluate code at runtime. It is never sent in production.
+ */
+function contentSecurityPolicy(nonce: string, supabaseUrl: string, host: string | null): string {
+  const dev = process.env.NODE_ENV !== 'production'
+
+  return [
+    "default-src 'self'",
+    "base-uri 'self'",
+    "object-src 'none'",
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    // next/font self-hosts the faces, so no external stylesheet host is needed
+    "style-src 'self' 'unsafe-inline'",
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${dev ? " 'unsafe-eval'" : ''}`,
+    [
+      'connect-src',
+      "'self'",
+      supabaseUrl,
+      supabaseUrl.replace('https://', 'wss://').replace('http://', 'ws://'),
+      'https://api.stripe.com',
+      'https://marine-api.open-meteo.com',
+      'https://api.open-meteo.com',
+      // hot reload opens a websocket back to whatever address the page came
+      // from — localhost on the Mac, the LAN address on a phone
+      dev ? 'ws://localhost:*' : '',
+      dev && host ? `ws://${host}` : '',
+    ]
+      .filter(Boolean)
+      .join(' '),
+    /*
+     * Production only. On a plain-HTTP LAN address — a phone testing the dev
+     * server — this upgrades every script and stylesheet to https, which the
+     * dev server does not speak, and the page loads with nothing working.
+     * Browsers only exempt localhost from it, which is why it looked fine there.
+     */
+    dev ? '' : 'upgrade-insecure-requests',
+  ]
+    .filter(Boolean)
+    .join('; ')
+}
 
 /**
  * Runs before every matched request (Next 16's `proxy` convention, formerly
@@ -19,7 +72,32 @@ const PROTECTED_PREFIXES = ['/admin', '/instructor', '/client', '/account']
 const AUTH_PAGES = ['/login', '/forgot-password']
 
 export async function proxy(request: NextRequest) {
-  let response = NextResponse.next({ request })
+  const nonce = crypto.randomUUID().replace(/-/g, '')
+  const csp = contentSecurityPolicy(
+    nonce,
+    process.env.NEXT_PUBLIC_SUPABASE_URL ?? '',
+    request.headers.get('host'),
+  )
+
+  // Next.js reads the nonce back off the request's CSP header and stamps it
+  // onto the scripts it injects, so both headers have to carry the same value.
+  const requestHeaders = new Headers(request.headers)
+  requestHeaders.set('x-nonce', nonce)
+  requestHeaders.set('content-security-policy', csp)
+
+  /*
+   * Which club, or which part of the platform, this address names. Decided
+   * once here from the Host header and handed down; nothing downstream parses
+   * a host again. A signed-in user's own club lives on their profile and is
+   * compared against this in the area layouts — the address never overrides it.
+   */
+  const target = parseHost(request.headers.get('host'), process.env.NEXT_PUBLIC_PLATFORM_DOMAIN ?? 'localhost:3000')
+  requestHeaders.set('x-platform-area', target.kind)
+  requestHeaders.delete('x-club-slug') // never trust a value that arrived from outside
+  if (target.kind === 'club') requestHeaders.set('x-club-slug', target.slug)
+
+  let response = NextResponse.next({ request: { headers: requestHeaders } })
+  response.headers.set('content-security-policy', csp)
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -33,7 +111,8 @@ export async function proxy(request: NextRequest) {
           for (const { name, value } of cookiesToSet) {
             request.cookies.set(name, value)
           }
-          response = NextResponse.next({ request })
+          response = NextResponse.next({ request: { headers: requestHeaders } })
+          response.headers.set('content-security-policy', csp)
           for (const { name, value, options } of cookiesToSet) {
             response.cookies.set(name, value, {
               ...options,
@@ -55,7 +134,16 @@ export async function proxy(request: NextRequest) {
 
   const { pathname } = request.nextUrl
 
-  if (!user && PROTECTED_PREFIXES.some((p) => pathname.startsWith(p))) {
+  // The operator area exists only on its own subdomain, and club areas only on
+  // a club's. A club member's URL pasted into the operator subdomain — or the
+  // reverse — is refused here before any page code runs.
+  const isPlatformPath = pathname.startsWith('/platform')
+  const isClubPath = PROTECTED_PREFIXES.some((p) => pathname.startsWith(p)) || pathname.startsWith('/onboarding')
+  if ((isPlatformPath && target.kind !== 'platform') || (isClubPath && target.kind !== 'club')) {
+    return new NextResponse('Not found', { status: 404 })
+  }
+
+  if (!user && (isClubPath || isPlatformPath)) {
     const login = request.nextUrl.clone()
     login.pathname = '/login'
     // Only ever round-trip an internal path, so this cannot become an open redirect.

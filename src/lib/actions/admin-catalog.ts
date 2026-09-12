@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { assertRole } from '@/lib/auth/session'
+import { assertRole, clubIdOf } from '@/lib/auth/session'
 import { recordAudit } from '@/lib/audit'
 import {
   categorySchema,
@@ -10,7 +10,7 @@ import {
   priceChangeSchema,
   serviceSchema,
 } from '@/lib/validation/schemas'
-import { assertSameOrigin, describeDbError, fail, fromZod, ok, type ActionResult } from './result'
+import { assertSameOrigin, fail, fromZod, ok, failDb, type ActionResult } from './result'
 import { bool, optionalStr, str } from './form'
 
 const DENIED = 'You are not allowed to do that.'
@@ -38,6 +38,7 @@ export async function saveCategoryAction(
 
   const db = createAdminClient()
   const row = {
+    club_id: clubIdOf(admin),
     name: parsed.data.name,
     slug: parsed.data.slug,
     kind: parsed.data.kind,
@@ -50,7 +51,7 @@ export async function saveCategoryAction(
     ? await db.from('categories').update(row).eq('id', parsed.data.id)
     : await db.from('categories').insert(row)
 
-  if (error) return fail(describeDbError(error, 'Could not save the category.'))
+  if (error) return failDb(error, 'Could not save the category.')
 
   await recordAudit({
     actorId: admin.id,
@@ -87,7 +88,7 @@ export async function deleteCategoryAction(
       ? await db.from('categories').update({ is_active: false }).eq('id', id)
       : await db.from('categories').delete().eq('id', id)
 
-  if (error) return fail(describeDbError(error, 'Could not remove the category.'))
+  if (error) return failDb(error, 'Could not remove the category.')
 
   await recordAudit({
     actorId: admin.id,
@@ -131,6 +132,7 @@ export async function saveServiceAction(
 
   const db = createAdminClient()
   const row = {
+    club_id: clubIdOf(admin),
     category_id: parsed.data.categoryId,
     name: parsed.data.name,
     description: parsed.data.description || null,
@@ -145,7 +147,7 @@ export async function saveServiceAction(
     ? await db.from('services').update(row).eq('id', parsed.data.id)
     : await db.from('services').insert(row)
 
-  if (error) return fail(describeDbError(error, 'Could not save the service.'))
+  if (error) return failDb(error, 'Could not save the service.')
 
   await recordAudit({
     actorId: admin.id,
@@ -193,7 +195,7 @@ export async function changePriceAction(
           ? await db.from('package_templates').update({ price_cents: priceCents }).eq('id', entityId)
           : await db.from('time_slots').update({ price_cents_override: priceCents }).eq('id', entityId)
 
-  if (result.error) return fail(describeDbError(result.error, 'Could not change the price.'))
+  if (result.error) return failDb(result.error, 'Could not change the price.')
 
   await recordAudit({
     actorId: admin.id,
@@ -228,8 +230,12 @@ export async function saveClubSettingsAction(
     spotLatitude: str(formData, 'spotLatitude'),
     spotLongitude: str(formData, 'spotLongitude'),
     contactPhone: optionalStr(formData, 'contactPhone'),
+    contactEmail: optionalStr(formData, 'contactEmail'),
     cancellationWindowHours: str(formData, 'cancellationWindowHours'),
     tipsEnabled: bool(formData, 'tipsEnabled'),
+    address: optionalStr(formData, 'address'),
+    website: optionalStr(formData, 'website'),
+    openingHours: str(formData, 'openingHours'),
   })
   if (!parsed.success) return fromZod(parsed.error)
 
@@ -252,12 +258,16 @@ export async function saveClubSettingsAction(
       spot_latitude: parsed.data.spotLatitude,
       spot_longitude: parsed.data.spotLongitude,
       contact_phone: parsed.data.contactPhone || null,
+      contact_email: parsed.data.contactEmail || null,
       cancellation_window_hours: parsed.data.cancellationWindowHours,
       tips_enabled: parsed.data.tipsEnabled,
+      address: parsed.data.address || null,
+      website: parsed.data.website || null,
+      opening_hours: parsed.data.openingHours,
     })
-    .eq('id', 1)
+    .eq('club_id', clubIdOf(admin))
 
-  if (error) return fail(describeDbError(error, 'Could not save the settings.'))
+  if (error) return failDb(error, 'Could not save the settings.')
 
   await recordAudit({
     actorId: admin.id,

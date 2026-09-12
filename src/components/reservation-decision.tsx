@@ -3,48 +3,60 @@
 import { useState } from 'react'
 import { decideReservationAction } from '@/lib/actions/reservations'
 import { ActionForm, SubmitButton } from '@/components/ui/form'
-import { buttonClass } from '@/components/ui/button-class'
-import { Input } from '@/components/ui'
+import { adminButton } from '@/components/ui/button-class'
 
 /**
- * Approve / decline controls for a single request.
+ * Approve / decline for one request, in the admin palette.
  *
- * Declining asks for a reason before it will submit — the client sees that
- * text, and "declined, no explanation" generates a phone call to the club.
+ * Approve is a single click. Decline always expands the reason field first and
+ * cannot submit empty — the member is shown that text, so "declined, no
+ * explanation" turns into a phone call to the club. The two-step shape is
+ * deliberate and is kept identical on the instructor side.
  */
 export function ReservationDecision({
   reservationId,
+  clientName,
   allowComplete = false,
 }: {
   reservationId: string
+  clientName?: string
   allowComplete?: boolean
 }) {
   const [declining, setDeclining] = useState(false)
 
   return (
-    <ActionForm action={decideReservationAction} className="space-y-2">
+    <ActionForm action={decideReservationAction} className="shrink-0">
       {({ fieldErrors }) => (
         <>
           <input type="hidden" name="reservationId" value={reservationId} />
 
           {declining ? (
-            <div className="space-y-2">
-              <Input
+            <div style={{ width: 420, maxWidth: '100%' }}>
+              <p style={{ margin: '0 0 4px', fontSize: 13, fontWeight: 800 }}>
+                Reason for declining{clientName ? ` — ${clientName.split(' ')[0]} will see this` : ''}
+              </p>
+              <input
                 name="reason"
-                placeholder="Why is this being declined?"
-                aria-label="Reason for declining"
                 required
                 maxLength={500}
                 autoFocus
+                placeholder="The session is full for this level…"
+                className="a-input"
               />
               {fieldErrors.reason && <p className="field-error">{fieldErrors.reason}</p>}
-              <div className="flex gap-2">
-                <SubmitButton variant="danger" size="sm" name="decision" value="rejected">
+
+              <div className="mt-2 flex gap-2">
+                <SubmitButton
+                  name="decision"
+                  value="rejected"
+                  className={adminButton('danger', 'sm')}
+                  pendingLabel="…"
+                >
                   Confirm decline
                 </SubmitButton>
                 <button
                   type="button"
-                  className={buttonClass('ghost', 'sm')}
+                  className={adminButton('quiet', 'sm')}
                   onClick={() => setDeclining(false)}
                 >
                   Cancel
@@ -52,23 +64,34 @@ export function ReservationDecision({
               </div>
             </div>
           ) : (
-            <div className="flex flex-wrap gap-2">
-              <SubmitButton size="sm" name="decision" value="approved">
+            <div className="flex flex-wrap gap-1.5">
+              <SubmitButton
+                name="decision"
+                value="approved"
+                className={adminButton('primary', 'sm')}
+                pendingLabel="…"
+              >
                 Approve
               </SubmitButton>
-              <button
-                type="button"
-                className={buttonClass('secondary', 'sm')}
-                onClick={() => setDeclining(true)}
-              >
+              <button type="button" className={adminButton('secondary', 'sm')} onClick={() => setDeclining(true)}>
                 Decline
               </button>
               {allowComplete && (
                 <>
-                  <SubmitButton variant="ghost" size="sm" name="decision" value="completed">
+                  <SubmitButton
+                    name="decision"
+                    value="completed"
+                    className={adminButton('quiet', 'sm')}
+                    pendingLabel="…"
+                  >
                     Mark attended
                   </SubmitButton>
-                  <SubmitButton variant="ghost" size="sm" name="decision" value="no_show">
+                  <SubmitButton
+                    name="decision"
+                    value="no_show"
+                    className={adminButton('quiet', 'sm')}
+                    pendingLabel="…"
+                  >
                     No show
                   </SubmitButton>
                 </>

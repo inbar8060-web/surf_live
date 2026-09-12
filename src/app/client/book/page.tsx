@@ -1,12 +1,23 @@
 import { createUserClient } from '@/lib/supabase/server'
 import { requireRole } from '@/lib/auth/session'
 import { getClubSettings } from '@/lib/db/queries'
-import { Badge, Card, EmptyState, PageHeader } from '@/components/ui'
-import { formatDateTime, formatMoney } from '@/lib/util/format'
-import { BookForm } from './book-form'
+import { MemberHero, HeroBack } from '@/components/member/hero'
+import { Empty, MicroLabel } from '@/components/ui/bits'
+import { formatMoney, formatTime } from '@/lib/util/format'
+import { BookForm, type PackageOption } from './book-form'
 
 export const metadata = { title: 'Book a session' }
 export const dynamic = 'force-dynamic'
+
+/** Group sessions under a day divider, in club time. */
+function dayKey(iso: string, timeZone: string) {
+  return new Intl.DateTimeFormat('en-GB', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    timeZone,
+  }).format(new Date(iso))
+}
 
 export default async function ClientBookPage({
   searchParams,
@@ -22,120 +33,179 @@ export default async function ClientBookPage({
   let query = supabase.from('slot_catalog').select('*').order('starts_at').limit(100)
   if (category) query = query.eq('category_slug', category)
 
-  const [slotsRes, packagesRes, myBookingsRes] = await Promise.all([
+  const [slotsRes, packagesRes, myBookingsRes, allCategoriesRes] = await Promise.all([
     query,
     supabase.from('my_packages').select('*').eq('is_usable', true).order('expires_at'),
-    supabase.from('my_bookings').select('reservation_id, slot_id, status'),
+    supabase.from('my_bookings').select('slot_id, status'),
+    // the pill row must not collapse to one when a filter is applied
+    supabase.from('slot_catalog').select('category_slug, category_name'),
   ])
 
   const slots = slotsRes.data ?? []
-  const packages = (packagesRes.data ?? []).map((pkg) => ({
+  const packages: PackageOption[] = (packagesRes.data ?? []).map((pkg) => ({
     id: pkg.id,
-    label: `${pkg.name} — ${pkg.lessons_remaining} lesson(s) left`,
+    name: pkg.name,
+    remaining: pkg.lessons_remaining,
   }))
 
-  // A member already holding a live booking for a session should not be
-  // offered the form again; the database would reject it anyway.
+  // A member already holding a live booking is not offered the form again;
+  // the database would reject a second one anyway.
   const alreadyBooked = new Set(
     (myBookingsRes.data ?? [])
       .filter((b) => b.status === 'pending' || b.status === 'approved')
       .map((b) => b.slot_id),
   )
 
-  const categories = [...new Map(slots.map((s) => [s.category_slug, s.category_name])).entries()]
+  const categories = [
+    ...new Map((allCategoriesRes.data ?? []).map((s) => [s.category_slug, s.category_name])).entries(),
+  ]
+
+  const days = new Map<string, typeof slots>()
+  for (const slot of slots) {
+    const key = dayKey(slot.starts_at, club.timezone)
+    days.set(key, [...(days.get(key) ?? []), slot])
+  }
 
   return (
     <>
-      <PageHeader
-        title="Book a session"
-        description="Pick a session and send a request. The club or your instructor confirms it."
-      />
+      <MemberHero waves={false}>
+        <HeroBack href="/client" title="Book a session" />
 
-      {categories.length > 1 && (
-        <nav className="mb-4 flex flex-wrap gap-2" aria-label="Filter by category">
-          <a
-            href="/client/book"
-            className={`rounded-lg px-3 py-1.5 text-sm ${!category ? 'bg-sea-600 text-white' : 'surface'}`}
-          >
-            Everything
-          </a>
-          {categories.map(([slug, name]) => (
+        {categories.length > 0 && (
+          <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
             <a
-              key={slug}
-              href={`/client/book?category=${slug}`}
-              className={`rounded-lg px-3 py-1.5 text-sm ${category === slug ? 'bg-sea-600 text-white' : 'surface'}`}
+              href="/client/book"
+              className="shrink-0 rounded-full"
+              style={{
+                background: !category ? '#2cc4ff' : '#0b4a6d',
+                color: !category ? '#072f49' : '#b6e8ff',
+                padding: '7px 14px',
+                fontSize: 13,
+                fontWeight: 700,
+              }}
             >
-              {name}
+              All
             </a>
-          ))}
-        </nav>
-      )}
+            {categories.map(([slug, name]) => (
+              <a
+                key={slug}
+                href={`/client/book?category=${slug}`}
+                className="shrink-0 rounded-full"
+                style={{
+                  background: category === slug ? '#2cc4ff' : '#0b4a6d',
+                  color: category === slug ? '#072f49' : '#b6e8ff',
+                  padding: '7px 14px',
+                  fontSize: 13,
+                  fontWeight: 700,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {name}
+              </a>
+            ))}
+          </div>
+        )}
+      </MemberHero>
 
-      {packages.length > 0 && (
-        <div className="mb-4">
-          <Card>
-            <p className="text-sm">
-              You have {packages.length} package(s) with lessons left — choose one when you request a
-              place and no payment is needed.
-            </p>
-          </Card>
-        </div>
-      )}
+      <div className="px-5 pt-4">
+        {packages.length > 0 && (
+          <p
+            className="mb-4"
+            style={{
+              background: '#def2ff',
+              color: '#065a84',
+              borderRadius: 16,
+              padding: '10px 14px',
+              fontSize: 13,
+              lineHeight: 1.45,
+            }}
+          >
+            {packages.reduce((n, p) => n + p.remaining, 0)} lesson(s) left on your{' '}
+            {packages[0]!.name} — no payment needed.
+          </p>
+        )}
 
-      {slots.length ? (
-        <div className="space-y-3">
-          {slots.map((slot) => {
-            const full = slot.seats_left <= 0
-            const booked = alreadyBooked.has(slot.slot_id)
+        {days.size > 0 ? (
+          [...days.entries()].map(([day, daySlots]) => (
+            <section key={day} className="mb-5">
+              <div className="mb-3 flex items-center gap-3">
+                <MicroLabel color="#5a6f7d">{day}</MicroLabel>
+                <span style={{ flex: 1, height: 1, background: '#dbe3ea' }} />
+              </div>
 
-            return (
-              <Card key={slot.slot_id}>
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="font-semibold">{slot.service_name}</h3>
-                      <Badge tone="neutral">{slot.category_name}</Badge>
-                      {slot.min_level && <Badge tone="info">{slot.min_level}+</Badge>}
-                      {full && <Badge tone="danger">Full</Badge>}
-                    </div>
+              <div className="flex flex-col gap-3">
+                {daySlots.map((slot) => {
+                  const full = slot.seats_left <= 0
+                  const booked = alreadyBooked.has(slot.slot_id)
+                  const tight = slot.seats_left > 0 && slot.seats_left < 3
 
-                    <p className="muted mt-1 text-sm">
-                      {formatDateTime(slot.starts_at, club.timezone)} · {slot.duration_minutes} min
-                      {slot.location ? ` · ${slot.location}` : ''}
-                    </p>
-                    <p className="muted text-sm">
-                      {slot.instructor_names.length
-                        ? `With ${slot.instructor_names.join(', ')}`
-                        : 'Instructor to be confirmed'}{' '}
-                      · {slot.seats_left} of {slot.capacity} places left
-                    </p>
-                    {slot.service_description && (
-                      <p className="mt-1 text-sm">{slot.service_description}</p>
-                    )}
-                  </div>
+                  return (
+                    <article
+                      key={slot.slot_id}
+                      className="m-card-sm"
+                      style={{ padding: '16px 18px' }}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <h2 className="display" style={{ fontSize: 17, fontWeight: 700, margin: 0 }}>
+                            {slot.service_name}
+                          </h2>
+                          <p style={{ margin: '3px 0 0', fontSize: 13, fontWeight: 700, color: '#0087c6' }}>
+                            {formatTime(slot.starts_at, club.timezone)} · {slot.duration_minutes} min
+                          </p>
+                          <p style={{ margin: '3px 0 0', fontSize: 13, color: '#5a6f7d' }}>
+                            {slot.instructor_names.length
+                              ? slot.instructor_names.join(', ')
+                              : 'Instructor to be confirmed'}
+                            {slot.location ? ` · ${slot.location}` : ''}
+                          </p>
+                        </div>
 
-                  <div className="flex shrink-0 flex-col items-end gap-2">
-                    <p className="text-lg font-semibold tabular-nums">
-                      {formatMoney(slot.price_cents, slot.currency)}
-                    </p>
-                    {booked ? (
-                      <Badge tone="success">Already requested</Badge>
-                    ) : full ? (
-                      <span className="muted text-sm">No places left</span>
-                    ) : (
-                      <BookForm slotId={slot.slot_id} seatsLeft={slot.seats_left} packages={packages} />
-                    )}
-                  </div>
-                </div>
-              </Card>
-            )
-          })}
-        </div>
-      ) : (
-        <EmptyState>
-          Nothing on the calendar right now. Check back soon, or call the club.
-        </EmptyState>
-      )}
+                        <div className="shrink-0 text-right">
+                          <p className="display" style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>
+                            {formatMoney(slot.price_cents, slot.currency)}
+                          </p>
+                          <p
+                            style={{
+                              margin: '2px 0 0',
+                              fontSize: 12,
+                              fontWeight: 700,
+                              color: full ? '#9f1239' : tight ? '#b45309' : '#0f766e',
+                            }}
+                          >
+                            {full ? 'Full' : `${slot.seats_left} left`}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-3.5 flex justify-end">
+                        {booked ? (
+                          <span style={{ fontSize: 13, fontWeight: 700, color: '#065f46' }}>
+                            Already requested
+                          </span>
+                        ) : full ? (
+                          <span style={{ fontSize: 13, fontWeight: 600, color: '#5a6f7d' }}>
+                            No places left
+                          </span>
+                        ) : (
+                          <BookForm
+                            slotId={slot.slot_id}
+                            seatsLeft={slot.seats_left}
+                            packages={packages}
+                            priceLabel={formatMoney(slot.price_cents, slot.currency)}
+                          />
+                        )}
+                      </div>
+                    </article>
+                  )
+                })}
+              </div>
+            </section>
+          ))
+        ) : (
+          <Empty>Nothing on the calendar right now. Check back soon, or call the club.</Empty>
+        )}
+      </div>
     </>
   )
 }

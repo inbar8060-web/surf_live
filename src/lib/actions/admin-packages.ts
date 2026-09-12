@@ -2,7 +2,8 @@
 
 import { revalidatePath } from 'next/cache'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { assertRole } from '@/lib/auth/session'
+import { createUserClient } from '@/lib/supabase/server'
+import { assertRole, clubIdOf } from '@/lib/auth/session'
 import { recordAudit } from '@/lib/audit'
 import {
   cancelPackageSchema,
@@ -10,7 +11,7 @@ import {
   grantPackageSchema,
   packageTemplateSchema,
 } from '@/lib/validation/schemas'
-import { assertSameOrigin, describeDbError, fail, fromZod, ok, type ActionResult } from './result'
+import { assertSameOrigin, fail, fromZod, ok, failDb, type ActionResult } from './result'
 import { bool, optionalStr, str } from './form'
 
 const DENIED = 'You are not allowed to do that.'
@@ -37,6 +38,7 @@ export async function savePackageTemplateAction(
 
   const db = createAdminClient()
   const row = {
+    club_id: clubIdOf(admin),
     category_id: parsed.data.categoryId || null,
     name: parsed.data.name,
     description: parsed.data.description || null,
@@ -50,7 +52,7 @@ export async function savePackageTemplateAction(
     ? await db.from('package_templates').update(row).eq('id', parsed.data.id)
     : await db.from('package_templates').insert(row)
 
-  if (error) return fail(describeDbError(error, 'Could not save the package.'))
+  if (error) return failDb(error, 'Could not save the package.')
 
   await recordAudit({
     actorId: admin.id,
@@ -81,13 +83,16 @@ export async function grantPackageAction(
   })
   if (!parsed.success) return fromZod(parsed.error)
 
-  const { data, error } = await createAdminClient().rpc('grant_client_package', {
+  // Called through the caller's own client on purpose: grant_client_package
+  // checks app.is_admin(), which reads the JWT. Going through the service role
+  // would leave auth.uid() null and the function would refuse.
+  const { data, error } = await (await createUserClient()).rpc('grant_client_package', {
     p_client_id: parsed.data.clientId,
     p_template_id: parsed.data.templateId,
     p_note: parsed.data.note || null,
   })
 
-  if (error || !data) return fail(describeDbError(error, 'Could not attach the package.'))
+  if (error || !data) return failDb(error, 'Could not attach the package.')
 
   await recordAudit({
     actorId: admin.id,
@@ -120,14 +125,14 @@ export async function extendPackageAction(
   })
   if (!parsed.success) return fromZod(parsed.error)
 
-  const { error } = await createAdminClient().rpc('extend_client_package', {
+  const { error } = await (await createUserClient()).rpc('extend_client_package', {
     p_package_id: parsed.data.packageId,
     p_extra_lessons: parsed.data.extraLessons,
     p_extra_days: parsed.data.extraDays,
     p_note: parsed.data.note || null,
   })
 
-  if (error) return fail(describeDbError(error, 'Could not extend the package.'))
+  if (error) return failDb(error, 'Could not extend the package.')
 
   await recordAudit({
     actorId: admin.id,
@@ -161,12 +166,12 @@ export async function cancelPackageAction(
   })
   if (!parsed.success) return fromZod(parsed.error)
 
-  const { error } = await createAdminClient().rpc('cancel_client_package', {
+  const { error } = await (await createUserClient()).rpc('cancel_client_package', {
     p_package_id: parsed.data.packageId,
     p_reason: parsed.data.reason,
   })
 
-  if (error) return fail(describeDbError(error, 'Could not cancel the package.'))
+  if (error) return failDb(error, 'Could not cancel the package.')
 
   await recordAudit({
     actorId: admin.id,

@@ -1,9 +1,12 @@
+import Link from 'next/link'
+import { Users } from 'lucide-react'
 import { createUserClient } from '@/lib/supabase/server'
 import { requireRole } from '@/lib/auth/session'
 import { getClubSettings } from '@/lib/db/queries'
-import { Badge, Card, EmptyState, PageHeader, StatusBadge } from '@/components/ui'
-import { GroupChatButton } from '@/components/contact-links'
+import { ScreenTitle, InsChip } from '@/components/instructor/pieces'
+import { Empty, MicroLabel } from '@/components/ui/bits'
 import { formatDateTime } from '@/lib/util/format'
+import { isWhatsappGroupUrl } from '@/lib/util/contact'
 
 export const metadata = { title: 'All groups' }
 export const dynamic = 'force-dynamic'
@@ -11,10 +14,9 @@ export const dynamic = 'force-dynamic'
 /**
  * Every group in the club, read only.
  *
- * Instructors can see what the whole club is running, but the page offers no
- * controls for sessions that are not theirs — and the database agrees: RLS
- * gives instructors SELECT on time_slots and nothing else, so there is no
- * write path to abuse even if a control were added here by mistake.
+ * The read-only half is not a UI decision: RLS gives instructors SELECT on
+ * time_slots and nothing else, so there is no write path to a session they are
+ * not assigned to even if a control were added here by mistake.
  */
 export default async function InstructorGroupsPage() {
   const user = await requireRole('instructor')
@@ -34,56 +36,99 @@ export default async function InstructorGroupsPage() {
   const mine = (slots ?? []).filter((s) => s.instructor_ids.includes(user.id))
   const others = (slots ?? []).filter((s) => !s.instructor_ids.includes(user.id))
 
-  const renderSlot = (slot: (typeof mine)[number], editable: boolean) => (
-    <li
-      key={slot.slot_id}
-      className="flex flex-wrap items-start justify-between gap-3 rounded-lg border px-3 py-3"
-      style={{ borderColor: 'var(--border)' }}
-    >
-      <div>
-        <p className="flex flex-wrap items-center gap-2 font-medium">
-          {slot.service_name}
-          <StatusBadge status={slot.status} />
-          {editable && <Badge tone="info">Yours</Badge>}
-          {slot.pending_count > 0 && <Badge tone="warning">{slot.pending_count} to approve</Badge>}
-        </p>
-        <p className="muted text-sm">
-          {formatDateTime(slot.starts_at, club.timezone)}
-          {slot.location ? ` · ${slot.location}` : ''} · {slot.seats_taken}/{slot.capacity} places
-        </p>
-        <p className="muted text-sm">
-          {slot.instructor_names.length ? slot.instructor_names.join(', ') : 'No instructor assigned'}
-        </p>
-        {slot.notes && <p className="muted mt-1 text-sm">Note: {slot.notes}</p>}
-      </div>
-
-      {editable && <GroupChatButton url={slot.whatsapp_group_url} />}
-    </li>
-  )
-
   return (
     <>
-      <PageHeader
-        title="All groups"
-        description="What the whole club has on. You can act on your own sessions; the rest are here for context."
-      />
+      <ScreenTitle title="All groups" sub="What the whole club has on." />
 
-      <div className="space-y-4">
-        <Card title="Your sessions">
-          {mine.length ? (
-            <ul className="space-y-2">{mine.map((slot) => renderSlot(slot, true))}</ul>
-          ) : (
-            <EmptyState>You are not assigned to any upcoming sessions.</EmptyState>
-          )}
-        </Card>
+      <div className="px-5">
+        <MicroLabel color="var(--color-ins-ink-3)" className="mb-2.5">
+          Yours
+        </MicroLabel>
 
-        <Card title="Everyone else" description="Read only.">
-          {others.length ? (
-            <ul className="space-y-2">{others.map((slot) => renderSlot(slot, false))}</ul>
-          ) : (
-            <EmptyState>Nothing else scheduled.</EmptyState>
-          )}
-        </Card>
+        {mine.length ? (
+          <div className="flex flex-col gap-3">
+            {mine.map((slot) => (
+              <article
+                key={slot.slot_id}
+                className="i-card"
+                style={{ padding: '15px 18px', borderLeft: '4px solid var(--color-ins-accent)' }}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>{slot.service_name}</p>
+                    <p
+                      style={{ margin: '3px 0 0', fontSize: 13, fontWeight: 600, color: 'var(--color-ins-ink-2)' }}
+                    >
+                      {formatDateTime(slot.starts_at, club.timezone)} · {slot.seats_taken} of {slot.capacity}
+                    </p>
+                  </div>
+
+                  <div className="flex shrink-0 items-center gap-2">
+                    {slot.pending_count > 0 && <InsChip tone="warn">{slot.pending_count} to approve</InsChip>}
+                    {isWhatsappGroupUrl(slot.whatsapp_group_url) && (
+                      <a
+                        href={slot.whatsapp_group_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label="Open the group chat"
+                        className="flex items-center justify-center"
+                        style={{ width: 40, height: 40, borderRadius: 20, background: 'var(--color-ins-ink)', color: '#fff' }}
+                      >
+                        <Users size={18} />
+                      </a>
+                    )}
+                  </div>
+                </div>
+
+                <Link
+                  href={`/instructor/session/${slot.slot_id}`}
+                  className="mt-3 block"
+                  style={{ fontSize: 13, fontWeight: 800, color: 'var(--color-ins-accent)' }}
+                >
+                  Open roster →
+                </Link>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <Empty tone="instructor">You are not assigned to any upcoming sessions.</Empty>
+        )}
+
+        <MicroLabel color="var(--color-ins-ink-3)" className="mb-2.5 mt-6">
+          Everyone else · read only
+        </MicroLabel>
+
+        {others.length ? (
+          <div className="flex flex-col gap-3">
+            {others.map((slot) => (
+              <article
+                key={slot.slot_id}
+                style={{ background: 'var(--color-ins-muted-card)', borderRadius: 22, padding: '15px 18px' }}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>{slot.service_name}</p>
+                    <p
+                      style={{ margin: '3px 0 0', fontSize: 13, fontWeight: 600, color: 'var(--color-ins-ink-2)' }}
+                    >
+                      {formatDateTime(slot.starts_at, club.timezone)} · {slot.seats_taken} of {slot.capacity}
+                    </p>
+                    <p
+                      style={{ margin: '3px 0 0', fontSize: 13, fontWeight: 600, color: 'var(--color-ins-ink-3)' }}
+                    >
+                      {slot.instructor_names.length
+                        ? slot.instructor_names.join(', ')
+                        : 'No instructor assigned'}
+                    </p>
+                  </div>
+                  <InsChip>{slot.status}</InsChip>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <Empty tone="instructor">Nothing else scheduled.</Empty>
+        )}
       </div>
     </>
   )

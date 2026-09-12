@@ -1,20 +1,21 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { paymentProvider } from '@/lib/payments'
+import { paymentProvider, type ConnectAccountState, type ProviderEvent } from '@/lib/payments'
 import { recordAudit } from '@/lib/audit'
-import type { PaymentStatus } from '@/lib/db/types'
+import { applyAccountState } from '@/lib/billing/accounts'
+import type { PaymentStatus, PlanKey, SubscriptionStatus } from '@/lib/db/types'
 
 /**
- * The only place a payment is allowed to become "paid".
+ * The only place a payment becomes "paid", a plan becomes "active", or a
+ * payout account becomes "connected".
  *
  * Order matters here:
  *   1. read the body as raw text — a parsed body cannot be signature-checked;
  *   2. verify the signature, and reject the request if it does not check out;
  *   3. only then touch the database.
  *
- * Replays are harmless: the update is conditional on the payment not already
- * being in a terminal state, and the follow-on records (a tip, a paid booking)
- * are written with a guard against a duplicate.
+ * Replays are harmless: every update is conditional on the row not already
+ * being in the state the event describes.
  *
  * This route is excluded from the session middleware so the body arrives
  * untouched, and it never trusts a user session — the signature is the only
@@ -24,57 +25,68 @@ import type { PaymentStatus } from '@/lib/db/types'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
+type Db = ReturnType<typeof createAdminClient>
 const TERMINAL: PaymentStatus[] = ['succeeded', 'refunded']
 
 export async function POST(request: NextRequest) {
   const rawBody = await request.text()
-  const signature =
-    request.headers.get('stripe-signature') ?? request.headers.get('x-payment-signature')
+  const signature = request.headers.get('stripe-signature') ?? request.headers.get('x-payment-signature')
 
-  const provider = paymentProvider()
-
-  let event
+  let event: ProviderEvent
   try {
-    event = await provider.parseWebhook(rawBody, signature)
+    event = await paymentProvider().parseWebhook(rawBody, signature)
   } catch (error) {
     // Do not echo the reason: a precise error is a hint to whoever is probing.
     console.error('[webhook] rejected', error instanceof Error ? error.message : error)
     return NextResponse.json({ error: 'Invalid signature' }, { status: 400 })
   }
 
-  if (event.type === 'ignored' || !event.paymentId) {
-    return NextResponse.json({ received: true })
-  }
-
   const db = createAdminClient()
 
-  const { data: payment } = await db
-    .from('payments')
-    .select('*')
-    .eq('id', event.paymentId)
-    .maybeSingle()
+  switch (event.kind) {
+    case 'payment':
+      return handlePayment(db, event)
+    case 'subscription':
+      return handleSubscription(db, event)
+    case 'account':
+      return handleAccount(db, event.state)
+    default:
+      return NextResponse.json({ received: true })
+  }
+}
 
+/* ---------------------------------------------------------------- payments */
+
+async function handlePayment(db: Db, event: Extract<ProviderEvent, { kind: 'payment' }>) {
+  if (!event.paymentId) return NextResponse.json({ received: true })
+
+  const { data: payment } = await db.from('payments').select('*').eq('id', event.paymentId).maybeSingle()
   if (!payment) {
     // 200 so the provider stops retrying something we will never recognise.
     console.warn('[webhook] unknown payment', event.paymentId)
     return NextResponse.json({ received: true })
   }
 
+  // The event must come from the account the charge was made on — the club's
+  // own. An event from any other account cannot settle this club's payment.
+  if (event.accountId) {
+    const expected =
+      payment.account_id ??
+      (await db.from('club_payment_accounts').select('account_id').eq('club_id', payment.club_id).maybeSingle()).data
+        ?.account_id
+    if (expected !== event.accountId) {
+      console.error('[webhook] account mismatch', { paymentId: payment.id, expected, got: event.accountId })
+      return NextResponse.json({ error: 'Account mismatch' }, { status: 400 })
+    }
+  }
+
   // A mismatch means the event does not describe the charge we created.
   if (
     event.type === 'succeeded' &&
-    (event.amountCents !== payment.amount_cents ||
-      (event.currency && event.currency !== payment.currency))
+    (event.amountCents !== payment.amount_cents || (event.currency && event.currency !== payment.currency))
   ) {
-    console.error('[webhook] amount mismatch', {
-      paymentId: payment.id,
-      expected: payment.amount_cents,
-      got: event.amountCents,
-    })
-    await db
-      .from('payments')
-      .update({ status: 'failed', failure_reason: 'Amount did not match the invoice' })
-      .eq('id', payment.id)
+    console.error('[webhook] amount mismatch', { paymentId: payment.id, expected: payment.amount_cents, got: event.amountCents })
+    await db.from('payments').update({ status: 'failed', failure_reason: 'Amount did not match the invoice' }).eq('id', payment.id)
     return NextResponse.json({ error: 'Amount mismatch' }, { status: 400 })
   }
 
@@ -83,13 +95,7 @@ export async function POST(request: NextRequest) {
   }
 
   const nextStatus: PaymentStatus =
-    event.type === 'succeeded'
-      ? 'succeeded'
-      : event.type === 'failed'
-        ? 'failed'
-        : event.type === 'refunded'
-          ? 'refunded'
-          : 'cancelled'
+    event.type === 'succeeded' ? 'succeeded' : event.type === 'failed' ? 'failed' : event.type === 'refunded' ? 'refunded' : 'cancelled'
 
   await db
     .from('payments')
@@ -109,6 +115,7 @@ export async function POST(request: NextRequest) {
   await recordAudit({
     actorId: null,
     actorRole: null,
+    clubId: payment.club_id,
     action: `payment.${nextStatus}`,
     entity: 'payment',
     entityId: payment.id,
@@ -120,8 +127,8 @@ export async function POST(request: NextRequest) {
 
 /** Everything that should happen once money has actually arrived. */
 async function applySuccessfulPayment(
-  db: ReturnType<typeof createAdminClient>,
-  payment: { id: string; client_id: string; kind: string; amount_cents: number; currency: string; metadata: Record<string, unknown> },
+  db: Db,
+  payment: { id: string; club_id: string; client_id: string; kind: string; amount_cents: number; currency: string; metadata: Record<string, unknown> },
 ) {
   switch (payment.kind) {
     case 'tip': {
@@ -129,17 +136,14 @@ async function applySuccessfulPayment(
       if (typeof instructorId !== 'string') break
 
       // The unique payment_id keeps a replayed webhook from double-recording.
-      const { data: existing } = await db
-        .from('tips')
-        .select('id')
-        .eq('payment_id', payment.id)
-        .maybeSingle()
+      const { data: existing } = await db.from('tips').select('id').eq('payment_id', payment.id).maybeSingle()
       if (existing) break
 
       const reservationId = payment.metadata?.reservation_id
       const message = payment.metadata?.message
 
       await db.from('tips').insert({
+        club_id: payment.club_id,
         client_id: payment.client_id,
         instructor_id: instructorId,
         reservation_id: typeof reservationId === 'string' ? reservationId : null,
@@ -175,4 +179,57 @@ async function applySuccessfulPayment(
       break
     }
   }
+}
+
+/* ----------------------------------------------------------- subscriptions */
+
+async function handleSubscription(db: Db, event: Extract<ProviderEvent, { kind: 'subscription' }>) {
+  // Our row id from the metadata we attached; failing that, the provider's id.
+  let query = db.from('club_subscriptions').select('*')
+  query = event.subscriptionId
+    ? query.eq('id', event.subscriptionId)
+    : query.eq('provider_subscription_id', event.providerSubscriptionId ?? '')
+  const { data: subscription } = await query.maybeSingle()
+
+  if (!subscription) {
+    console.warn('[webhook] unknown subscription', event.subscriptionId ?? event.providerSubscriptionId)
+    return NextResponse.json({ received: true })
+  }
+
+  const status: SubscriptionStatus =
+    event.type === 'canceled' ? 'canceled' : event.type === 'past_due' ? 'past_due' : 'active'
+
+  const { data: planRow } = event.planKey
+    ? await db.from('plans').select('key').eq('key', event.planKey as PlanKey).maybeSingle()
+    : { data: null }
+
+  await db
+    .from('club_subscriptions')
+    .update({
+      status,
+      plan_key: planRow?.key ?? subscription.plan_key,
+      provider_subscription_id: event.providerSubscriptionId ?? subscription.provider_subscription_id,
+      provider_customer_id: event.providerCustomerId ?? subscription.provider_customer_id,
+      current_period_start: event.periodStart ?? subscription.current_period_start,
+      current_period_end: event.periodEnd ?? subscription.current_period_end,
+      canceled_at: status === 'canceled' ? new Date().toISOString() : null,
+    })
+    .eq('id', subscription.id)
+
+  await db.from('platform_audit_log').insert({
+    actor_id: null,
+    action: `subscription.${event.type}`,
+    club_id: subscription.club_id,
+    detail: { plan: planRow?.key ?? subscription.plan_key, status, period_end: event.periodEnd },
+  })
+
+  return NextResponse.json({ received: true })
+}
+
+/* ---------------------------------------------------------- payout account */
+
+async function handleAccount(_db: Db, state: ConnectAccountState) {
+  const applied = await applyAccountState(state)
+  if (!applied) console.warn('[webhook] unknown account', state.accountId)
+  return NextResponse.json({ received: true })
 }

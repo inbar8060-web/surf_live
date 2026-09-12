@@ -65,6 +65,8 @@ export function homeFor(role: AppRole): string {
       return '/instructor'
     case 'client':
       return '/client'
+    case 'super_admin':
+      return '/platform'
   }
 }
 
@@ -79,4 +81,60 @@ export async function assertRole(...roles: AppRole[]): Promise<SessionUser | nul
   const user = await getSessionUser()
   if (!user || !roles.includes(user.profile.role)) return null
   return user
+}
+
+/**
+ * Role guard for a Server Action, with a way out when the answer is "no".
+ *
+ * `assertRole` returning null collapses three very different situations into
+ * one dead end: the session expired, the page was left open while somebody
+ * signed in as a different account, or the caller genuinely has the wrong
+ * role. The first two are ordinary and recoverable — a page that has been open
+ * for a while is exactly what happens when someone reads a long document
+ * before signing it — so they should not be answered with a flat refusal.
+ *
+ * Throws a redirect to sign-in when there is no session at all, and otherwise
+ * hands back either the user or a message that says what went wrong.
+ */
+export type ActionGuard =
+  | { ok: true; user: SessionUser }
+  | { ok: false; error: string }
+
+export async function requireRoleForAction(
+  roles: AppRole[],
+  returnTo?: string,
+): Promise<ActionGuard> {
+  const user = await getSessionUser()
+
+  if (!user) {
+    // No valid session: send them to sign in and come back to where they were.
+    redirect(returnTo ? `/login?next=${encodeURIComponent(returnTo)}` : '/login')
+  }
+
+  if (!roles.includes(user.profile.role)) {
+    return {
+      ok: false,
+      error:
+        `You are signed in as ${user.profile.full_name}, who is ${
+          user.profile.role === 'client' ? 'a member' : `an ${user.profile.role}`
+        }. ` + 'Reload the page, or sign in with the account this belongs to.',
+    }
+  }
+
+  return { ok: true, user }
+}
+
+
+/**
+ * The club a club-side user belongs to, for the few writes that go through the
+ * service role and therefore must name the club themselves. Throws for the
+ * platform operator, who has no club and should never reach one of those
+ * writes — a thrown error here is a routing bug surfacing early, not a case
+ * to handle.
+ */
+export function clubIdOf(user: SessionUser): string {
+  if (!user.profile.club_id) {
+    throw new Error(`${user.profile.role} account ${user.id} has no club`)
+  }
+  return user.profile.club_id
 }

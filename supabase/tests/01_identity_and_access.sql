@@ -9,20 +9,35 @@ select test.act_as_server();
 -- ---------------------------------------------------------------------------
 -- Provisioning: the role comes from app_metadata, which a user cannot write to
 -- ---------------------------------------------------------------------------
+-- every account is created for a named club; the platform operator for none
+select id as club_a from public.clubs where slug = 'surfer-live' \gset
+
 insert into auth.users (id, email, raw_app_meta_data, raw_user_meta_data) values
   ('11111111-1111-1111-1111-111111111111', 'admin@test.local',
-   '{"role":"admin","full_name":"Ava Admin","phone":"+972500000001"}', '{}'),
+   format('{"role":"admin","club_id":"%s","full_name":"Ava Admin","phone":"+972500000001"}', :'club_a')::jsonb, '{}'),
   ('22222222-2222-2222-2222-222222222222', 'maya@test.local',
-   '{"role":"instructor","full_name":"Maya Instructor","phone":"+972500000002"}', '{}'),
+   format('{"role":"instructor","club_id":"%s","full_name":"Maya Instructor","phone":"+972500000002"}', :'club_a')::jsonb, '{}'),
   ('33333333-3333-3333-3333-333333333333', 'dan@test.local',
-   '{"role":"instructor","full_name":"Dan Instructor","phone":"+972500000003"}', '{}'),
+   format('{"role":"instructor","club_id":"%s","full_name":"Dan Instructor","phone":"+972500000003"}', :'club_a')::jsonb, '{}'),
   ('44444444-4444-4444-4444-444444444444', 'noa@test.local',
-   '{"role":"client","full_name":"Noa Client","phone":"+972500000004"}', '{}'),
+   format('{"role":"client","club_id":"%s","full_name":"Noa Client","phone":"+972500000004"}', :'club_a')::jsonb, '{}'),
   ('55555555-5555-5555-5555-555555555555', 'tom@test.local',
-   '{"role":"client","full_name":"Tom Client","phone":"+972500000005"}', '{}');
+   format('{"role":"client","club_id":"%s","full_name":"Tom Client","phone":"+972500000005"}', :'club_a')::jsonb, '{}'),
+  ('99999999-9999-9999-9999-999999999999', 'ops@platform.local',
+   '{"role":"super_admin","full_name":"Platform Ops"}', '{}');
 
 select test.check(
-  (select count(*) from public.profiles) = 5,
+  (select club_id from public.profiles where id = '99999999-9999-9999-9999-999999999999') is null,
+  'the platform operator belongs to no club');
+
+select test.rejects(
+  $sql$ insert into auth.users (id, email, raw_app_meta_data, raw_user_meta_data) values
+        ('77777777-7777-7777-7777-777777777777', 'noclub@test.local',
+         '{"role":"client","full_name":"No Club"}', '{}') $sql$,
+  'a club account cannot be created without naming its club — there is no default');
+
+select test.check(
+  (select count(*) from public.profiles) = 6,
   'a profile row is created for every auth user');
 
 select test.check(
@@ -36,7 +51,7 @@ select test.check(
 -- A user who puts role=admin in their own (writable) user_metadata stays a client.
 insert into auth.users (id, email, raw_app_meta_data, raw_user_meta_data) values
   ('66666666-6666-6666-6666-666666666666', 'sneaky@test.local',
-   '{"role":"client","full_name":"Sneaky Client"}', '{"role":"admin"}');
+   format('{"role":"client","club_id":"%s","full_name":"Sneaky Client"}', :'club_a')::jsonb, '{"role":"admin"}');
 
 select test.check(
   (select role from public.profiles where id = '66666666-6666-6666-6666-666666666666') = 'client',
@@ -117,7 +132,7 @@ select test.act_as('11111111-1111-1111-1111-111111111111');
 
 select test.check(
   (select count(*) from public.profiles) = 6,
-  'an admin can see every profile');
+  'an admin can see every profile in their club, and not the platform operator');
 
 -- ---------------------------------------------------------------------------
 -- The last active admin cannot be removed

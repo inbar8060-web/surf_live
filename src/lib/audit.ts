@@ -2,11 +2,17 @@ import 'server-only'
 
 import { headers } from 'next/headers'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { clientIp } from '@/lib/util/request'
 import type { AppRole } from '@/lib/db/types'
 
 interface AuditInput {
   actorId: string | null
   actorRole: AppRole | null
+  /**
+   * The club the event belongs to. Resolved from the actor's profile when not
+   * given; required explicitly where there is no actor (a payment webhook).
+   */
+  clubId?: string | null
   action: string
   entity: string
   entityId?: string | null
@@ -18,6 +24,8 @@ const REDACTED = '[redacted]'
 const SENSITIVE_KEYS = new Set([
   'password', 'token', 'token_hash', 'secret', 'access_token', 'refresh_token',
   'service_role_key', 'payout_account_ref', 'card', 'cvc',
+  // a drawn signature is a biometric-adjacent image; it never belongs in a log
+  'signature', 'signatureimage', 'signature_image', 'typedname', 'typed_name',
 ])
 
 /** Strip anything that must never be written to a log, at any nesting depth. */
@@ -42,12 +50,25 @@ function scrub(value: unknown, depth = 0): unknown {
 export async function recordAudit(input: AuditInput): Promise<void> {
   try {
     const headerList = await headers()
-    const forwarded = headerList.get('x-forwarded-for')
-    const ip = forwarded?.split(',')[0]?.trim() || null
+    const ip = clientIp(headerList)
+    const admin = createAdminClient()
 
-    await createAdminClient()
+    let clubId = input.clubId ?? null
+    if (!clubId && input.actorId) {
+      const { data } = await admin.from('profiles').select('club_id').eq('id', input.actorId).maybeSingle()
+      clubId = data?.club_id ?? null
+    }
+    if (!clubId) {
+      // the platform operator's actions go to their own trail; a club event
+      // with no club is a bug worth hearing about, not a row worth writing
+      console.error('[audit] no club for event', input.action)
+      return
+    }
+
+    await admin
       .from('audit_log')
       .insert({
+        club_id: clubId,
         actor_id: input.actorId,
         actor_role: input.actorRole,
         action: input.action,

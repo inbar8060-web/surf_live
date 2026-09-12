@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { headers } from 'next/headers'
+import { clientIp } from './request'
 
 /**
  * Fixed-window rate limiter.
@@ -73,10 +74,8 @@ export async function rateLimit(
 
 /** Caller identity for anonymous endpoints: the closest thing to a client IP. */
 export async function callerKey(prefix: string): Promise<string> {
-  const headerList = await headers()
-  const ip =
-    headerList.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-    headerList.get('x-real-ip') ||
-    'unknown'
+  // A forged or malformed forwarding header must not let a caller choose
+  // their own bucket, so only a real IP address is accepted as the key.
+  const ip = clientIp(await headers()) ?? 'unknown'
   return `${prefix}:${ip}`
 }

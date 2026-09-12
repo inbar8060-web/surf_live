@@ -35,12 +35,20 @@ const db = createClient(url, serviceKey, {
 interface SeedUser {
   email: string
   password: string
-  role: 'admin' | 'instructor' | 'client'
+  role: 'admin' | 'instructor' | 'client' | 'super_admin'
   fullName: string
   phone: string
 }
 
+// The first club, created by migration 0014 from the settings that were there.
+const { data: club } = await db.from('clubs').select('id, slug').eq('slug', 'surfer-live').maybeSingle()
+if (!club) {
+  console.error('The "surfer-live" club is missing — run the migrations first.')
+  process.exit(1)
+}
+
 const users: SeedUser[] = [
+  { email: 'ops@surferlive.test',     password: 'change-me-please-00', role: 'super_admin', fullName: 'Platform Ops', phone: '+972500000000' },
   { email: 'admin@surferlive.test',   password: 'change-me-please-01', role: 'admin',      fullName: 'Club Manager',  phone: '+972500000001' },
   { email: 'maya@surferlive.test',    password: 'change-me-please-02', role: 'instructor', fullName: 'Maya Cohen',    phone: '+972500000002' },
   { email: 'daniel@surferlive.test',  password: 'change-me-please-03', role: 'instructor', fullName: 'Daniel Peretz', phone: '+972500000003' },
@@ -53,7 +61,13 @@ for (const user of users) {
     email: user.email,
     password: user.password,
     email_confirm: true,
-    app_metadata: { role: user.role, full_name: user.fullName, phone: user.phone },
+    app_metadata: {
+      role: user.role,
+      // a club account is always created for one named club; the operator for none
+      club_id: user.role === 'super_admin' ? null : club.id,
+      full_name: user.fullName,
+      phone: user.phone,
+    },
   })
 
   if (error) {
@@ -63,7 +77,7 @@ for (const user of users) {
 
   // The trigger fills in name and phone; this keeps the instructor reachable.
   if (user.role === 'instructor' && data.user) {
-    await db.from('instructors').update({ whatsapp_phone: user.phone }).eq('profile_id', data.user.id)
+    await db.from('instructors').update({ whatsapp_phone: user.phone }).eq('profile_id', data.user.id).eq('club_id', club.id)
   }
 
   console.log(`  created ${user.role.padEnd(10)} ${user.email}`)

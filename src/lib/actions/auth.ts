@@ -1,13 +1,18 @@
 'use server'
 
 import { redirect } from 'next/navigation'
+import { headers } from 'next/headers'
 import { revalidatePath } from 'next/cache'
 import { createUserClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { clubUrl, getRequestArea, platformUrl } from '@/lib/tenant'
+import { legalDocumentsFor } from '@/lib/legal'
+import { clientIp } from '@/lib/util/request'
 import { getSessionUser, homeFor } from '@/lib/auth/session'
 import { recordAudit } from '@/lib/audit'
 import { rateLimit, callerKey } from '@/lib/util/rate-limit'
 import { hashInviteToken, inviteHashMatches } from '@/lib/util/invites'
+import { safeInternalPath } from '@/lib/util/safe-path'
 import { acceptInviteSchema, changePasswordSchema, signInSchema } from '@/lib/validation/schemas'
 import { assertSameOrigin, fail, fromZod, ok, type ActionResult } from '@/lib/actions/result'
 import type { AppRole } from '@/lib/db/types'
@@ -44,7 +49,7 @@ export async function signInAction(
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role, is_active')
+    .select('role, is_active, club_id')
     .eq('id', data.user.id)
     .single()
 
@@ -52,6 +57,7 @@ export async function signInAction(
     await supabase.auth.signOut()
     return fail('This account is not active. Please contact the club.')
   }
+
 
   await recordAudit({
     actorId: data.user.id,
@@ -61,17 +67,32 @@ export async function signInAction(
     entityId: data.user.id,
   })
 
-  const next = formData.get('next')
-  // Only ever follow an internal path: an absolute URL here would be an open redirect.
-  const target =
-    typeof next === 'string' && /^\/(?!\/)/.test(next) ? next : homeFor(profile.role as AppRole)
+  // A club's addresses serve only that club, and the operator's serves only
+  // the operator. If the person signed in at the wrong door, walk them to the
+  // right one; the area layouts would refuse them anyway.
+  const area = await getRequestArea()
+  if (profile.role === 'super_admin') {
+    if (area !== 'platform') redirect(platformUrl('/platform'))
+  } else if (area !== 'club') {
+    const { data: club } = await createAdminClient()
+      .from('clubs')
+      .select('slug')
+      .eq('id', profile.club_id ?? '')
+      .maybeSingle()
+    redirect(club ? clubUrl(club.slug, homeFor(profile.role as AppRole)) : '/login')
+  }
 
-  redirect(target)
+  // Only ever follow an internal path. `safeInternalPath` also refuses the
+  // backslash form (`/\evil.com`) that browsers resolve as another host.
+  redirect(safeInternalPath(formData.get('next'), homeFor(profile.role as AppRole)))
 }
 
 /* ----------------------------------------------------------------- sign out */
 
 export async function signOutAction(): Promise<void> {
+  // A cross-site form post could otherwise log someone out at will.
+  if (!(await assertSameOrigin())) redirect('/login')
+
   const user = await getSessionUser()
   const supabase = await createUserClient()
   await supabase.auth.signOut()
@@ -136,6 +157,12 @@ export async function changePasswordAction(
       : 'Could not update the password. Please try again.')
   }
 
+  // Someone changes their password because they suspect the old one leaked.
+  // Every other session — a lost phone, a shared computer — is ended; this one
+  // is kept so the change does not log the person doing it out.
+  const { error: revokeError } = await supabase.auth.signOut({ scope: 'others' })
+  if (revokeError) console.error('[auth] could not revoke other sessions', revokeError.message)
+
   await recordAudit({
     actorId: user.id,
     actorRole: user.profile.role,
@@ -197,6 +224,8 @@ export async function acceptInviteAction(
     // The role lives in app_metadata, which a user can never write to.
     app_metadata: {
       role: invite.role,
+      // the club that issued the invite; the address it was opened at plays no part
+      club_id: invite.club_id,
       full_name: parsed.data.fullName,
       phone: parsed.data.phone || null,
     },
@@ -224,6 +253,23 @@ export async function acceptInviteAction(
     // Someone else redeemed it between our check and our write: undo the account.
     await admin.auth.admin.deleteUser(created.user.id)
     return fail('This registration link has already been used.')
+  }
+
+  // An administrator accepted the platform's documents with the box on the
+  // form; that acceptance is recorded against them now, once, with the
+  // version they saw. Members and instructors accept theirs on first sign-in.
+  if (invite.role === 'admin') {
+    const headerList = await headers()
+    await admin.from('legal_acceptances').insert(
+      legalDocumentsFor('admin').map((doc) => ({
+        club_id: invite.club_id,
+        user_id: created.user!.id,
+        document_key: doc.key,
+        version: doc.version,
+        ip: clientIp(headerList),
+        user_agent: headerList.get('user-agent')?.slice(0, 300) ?? null,
+      })),
+    )
   }
 
   await recordAudit({

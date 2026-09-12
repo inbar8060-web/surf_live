@@ -1,6 +1,20 @@
 @import 'tailwindcss';
 
+/* ===========================================================================
+   Design tokens
+   ---------------------------------------------------------------------------
+   Three interfaces share one stylesheet but not one palette:
+
+     member      deep water — sea ramp on #072f49, Outfit + Nunito Sans
+     instructor  minimal warm grey, one accent, Manrope, readable in sunlight
+     admin       dark green chrome on a paper ground, Manrope, dense
+
+   Everything below comes from the handoff. Values are literal rather than
+   derived so a designer can find any number in the spec and search for it here.
+   =========================================================================== */
+
 @theme {
+  /* ---- shared sea and sand ramps (unchanged from the original build) ---- */
   --color-sea-50: #eff9ff;
   --color-sea-100: #def2ff;
   --color-sea-200: #b6e8ff;
@@ -18,9 +32,81 @@
   --color-sand-200: #ebdbbc;
   --color-sand-300: #dec393;
   --color-sand-400: #d0a668;
+  --color-sand-ink: #8a6b39;
 
-  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  /* ---- instructor ---- */
+  --color-ins-ground: #f4f4f2;
+  --color-ins-ink: #17191a;
+  --color-ins-ink-2: #6b7478;
+  --color-ins-ink-3: #9aa3a7;
+  --color-ins-line: #e0e0dd;
+  --color-ins-surface: #232628;
+  --color-ins-avatar: #3a3e41;
+  --color-ins-accent: #0f6f8c;
+  --color-ins-accent-on-dark: #4fb6d4;
+  --color-ins-warn-bg: #fdf3e2;
+  --color-ins-warn-ink: #8a5c00;
+  --color-ins-warn-bg-dark: #4a3a17;
+  --color-ins-warn-ink-dark: #ffcf70;
+  --color-ins-danger-bg: #fbeaeb;
+  --color-ins-danger-ink: #a3272c;
+  --color-ins-danger-bg-dark: #4a1f21;
+  --color-ins-danger-ink-dark: #ff9ea1;
+  --color-ins-muted-card: #eeeeec;
+
+  /* ---- admin ---- */
+  --color-adm-ground: #f5f6f4;
+  --color-adm-chrome: #12211d;
+  --color-adm-chrome-2: #1b2d28;
+  --color-adm-chrome-3: #1f3830;
+  --color-adm-chrome-ink: #9db3ab;
+  --color-adm-chrome-ink-2: #a9c7bd;
+  --color-adm-chrome-ink-3: #8ba49c;
+  --color-adm-accent: #1f6f5c;
+  --color-adm-bright: #6fd3b4;
+  --color-adm-bright-ink: #0d1a16;
+  --color-adm-ink: #12211d;
+  --color-adm-ink-2: #5c6b66;
+  --color-adm-ink-3: #9aa8a3;
+  --color-adm-line: #e6eae8;
+  --color-adm-rule: #eef1ef;
+  --color-adm-amber-bg: #fdf9f2;
+  --color-adm-amber-line: #f6e3c4;
+  --color-adm-amber-ink: #7a4e0c;
+  --color-adm-amber-row: #fdf0dd;
+  --color-adm-rose-bg: #fdf6f6;
+  --color-adm-rose-line: #f3d7d9;
+  --color-adm-rose-ink: #9c2f39;
+  --color-adm-rose-chip: #f7e2e4;
+  --color-adm-green-chip: #e4f2ec;
+  --color-adm-green-ink: #155345;
+  --color-adm-blue-chip: #e2eef4;
+  --color-adm-blue-ink: #155f78;
+  --color-adm-neutral-chip: #eef1ef;
+  --color-adm-neutral-ink: #3f4c48;
+
+  /* ---- status colours, unchanged from StatusBadge ---- */
+  --color-status-success-bg: #d1fae5;
+  --color-status-success-ink: #065f46;
+  --color-status-warning-bg: #fef3c7;
+  --color-status-warning-ink: #78350f;
+  --color-status-danger-bg: #ffe4e6;
+  --color-status-danger-ink: #9f1239;
+  --color-status-info-bg: #def2ff;
+  --color-status-info-ink: #065a84;
+  --color-status-neutral-bg: #f1f5f9;
+  --color-status-neutral-ink: #334155;
+
+  /* ---- families, bound to the next/font variables ---- */
+  --font-display: var(--font-outfit), ui-sans-serif, system-ui, sans-serif;
+  --font-body: var(--font-nunito), ui-sans-serif, system-ui, sans-serif;
+  --font-staff: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-nunito), ui-sans-serif, system-ui, sans-serif;
 }
+
+/* ===========================================================================
+   Base
+   =========================================================================== */
 
 :root {
   --bg: #f6f8fa;
@@ -32,51 +118,161 @@
   color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0a1620;
-    --surface: #0f2130;
-    --surface-muted: #16303f;
-    --border: #21404f;
-    --text: #e8f2f8;
-    --text-muted: #93aebe;
-    color-scheme: dark;
-  }
+html {
+  /* The three interfaces are each committed to a single look, so the palette
+     does not follow the system theme. A member checking the surf in bright sun
+     and an instructor on the beach both need the same, predictable contrast. */
+  color-scheme: light;
 }
 
 body {
+  margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: var(--font-sans);
+  font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-/* Visible keyboard focus everywhere, never removed. */
+/* Visible keyboard focus everywhere, on every new surface too. */
 :focus-visible {
   outline: 2px solid var(--color-sea-500);
   outline-offset: 2px;
   border-radius: 4px;
 }
 
+/* Phone shells keep their own bottom padding clear of the home indicator. */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .safe-bottom {
+    padding-bottom: max(26px, env(safe-area-inset-bottom));
+  }
+}
+.safe-bottom {
+  padding-bottom: 26px;
+}
+
+/* ===========================================================================
+   Interface grounds
+   =========================================================================== */
+
+.app-member {
+  font-family: var(--font-body);
+  background: var(--color-sea-50);
+  color: #10242f;
+}
+.app-member h1,
+.app-member h2,
+.app-member h3,
+.app-member .display {
+  font-family: var(--font-display);
+}
+
+.app-instructor {
+  font-family: var(--font-staff);
+  background: var(--color-ins-ground);
+  color: var(--color-ins-ink);
+}
+
+.app-admin {
+  font-family: var(--font-staff);
+  background: var(--color-adm-ground);
+  color: var(--color-adm-ink);
+}
+
+/* ===========================================================================
+   Components
+   =========================================================================== */
+
 @layer components {
-  .surface {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 0.875rem;
+  /* -- member ------------------------------------------------------------ */
+
+  .m-card {
+    background: #fff;
+    border-radius: 26px;
+    box-shadow: 0 10px 24px rgba(7, 47, 73, 0.08);
+  }
+  .m-card-sm {
+    background: #fff;
+    border-radius: 22px;
+    box-shadow: 0 10px 24px rgba(7, 47, 73, 0.08);
+  }
+  /* the "current" card is the only one that carries a border */
+  .m-card-current {
+    border: 2px solid var(--color-sea-100);
+  }
+  .m-label {
+    font-family: var(--font-body);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  /* pinned to the bottom of the member hero */
+  .wave-texture {
+    background-image: repeating-linear-gradient(
+      -8deg,
+      rgba(44, 196, 255, 0.16) 0 3px,
+      transparent 3px 11px
+    );
+  }
+  .gear-stripe {
+    background-image: repeating-linear-gradient(
+      135deg,
+      #def2ff 0 6px,
+      #eff9ff 6px 12px
+    );
   }
 
-  .muted {
-    color: var(--text-muted);
+  /* -- instructor -------------------------------------------------------- */
+
+  .i-card {
+    background: #fff;
+    border-radius: 22px;
   }
+  .i-label {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  /* -- admin ------------------------------------------------------------- */
+
+  .a-card {
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 2px 6px rgba(20, 32, 28, 0.05);
+  }
+  .a-label {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .a-input {
+    height: 42px;
+    border: 1.5px solid var(--color-adm-line);
+    border-radius: 11px;
+    padding: 0 12px;
+    background: #fff;
+    color: var(--color-adm-ink);
+    font-size: 13px;
+    width: 100%;
+  }
+  .a-helper {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--color-adm-ink-2);
+  }
+
+  /* -- shared form primitives (still used by out-of-scope routes) -------- */
 
   .field-label {
     display: block;
     font-size: 0.8125rem;
     font-weight: 600;
     margin-bottom: 0.375rem;
-    color: var(--text);
   }
-
   .field-input {
     width: 100%;
     padding: 0.5rem 0.75rem;
@@ -87,52 +283,100 @@ body {
     font-size: 0.9375rem;
     line-height: 1.5;
   }
-
   .field-input:disabled {
     background: var(--surface-muted);
     cursor: not-allowed;
   }
-
   .field-error {
     color: #dc2626;
     font-size: 0.8125rem;
     margin-top: 0.25rem;
   }
-
-  .table-wrap {
-    overflow-x: auto;
+  .surface {
+    background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 0.875rem;
-    background: var(--surface);
   }
-
+  .muted {
+    color: var(--text-muted);
+  }
+  .table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--color-adm-line);
+    border-radius: 16px;
+    background: #fff;
+  }
   .data-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 0.875rem;
+    font-size: 13px;
     min-width: 40rem;
   }
-
   .data-table th {
     text-align: left;
-    font-weight: 600;
-    padding: 0.625rem 0.875rem;
-    background: var(--surface-muted);
-    color: var(--text-muted);
+    padding: 10px 14px;
+    background: #fff;
+    color: var(--color-adm-ink-3);
     white-space: nowrap;
-    font-size: 0.75rem;
+    font-size: 11px;
+    font-weight: 800;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
+    border-bottom: 1px solid var(--color-adm-line);
   }
-
   .data-table td {
-    padding: 0.75rem 0.875rem;
-    border-top: 1px solid var(--border);
+    padding: 12px 14px;
+    border-top: 1px solid var(--color-adm-rule);
     vertical-align: top;
   }
 }
 
+/* ===========================================================================
+   Motion
+   =========================================================================== */
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.sheet-panel {
+  animation: sheet-up 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.sheet-scrim {
+  animation: scrim-in 240ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-panel,
+  .sheet-scrim {
+    animation: none;
+  }
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+  }
+}
+
 @media print {
-  .no-print { display: none !important; }
-  body { background: #fff; color: #000; }
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+    color: #000;
+  }
 }

@@ -46,13 +46,13 @@ select test.rejects(
 -- ---------------------------------------------------------------------------
 select test.act_as_server();
 
-insert into public.time_slots (id, service_id, starts_at, ends_at, capacity)
-select 'aaaaaaaa-0000-0000-0000-000000000002',
+insert into public.time_slots (id, club_id, service_id, starts_at, ends_at, capacity)
+select 'aaaaaaaa-0000-0000-0000-000000000002', s.club_id,
        s.id, now() + interval '9 days', now() + interval '9 days 90 minutes', 6
 from public.services s where s.name = 'Beginner group lesson';
 
-insert into public.time_slot_instructors (slot_id, instructor_id, is_lead)
-values ('aaaaaaaa-0000-0000-0000-000000000002', '22222222-2222-2222-2222-222222222222', true);
+insert into public.time_slot_instructors (slot_id, club_id, instructor_id, is_lead)
+values ('aaaaaaaa-0000-0000-0000-000000000002', (select club_id from public.time_slots where id = 'aaaaaaaa-0000-0000-0000-000000000002'), '22222222-2222-2222-2222-222222222222', true);
 
 select test.act_as('55555555-5555-5555-5555-555555555555');
 
@@ -124,8 +124,8 @@ select test.rejects(
   $sql$ delete from public.package_ledger where id = (select min(id) from public.package_ledger) $sql$,
   'the package ledger cannot be deleted from');
 
-insert into public.audit_log (actor_id, actor_role, action, entity)
-values ('11111111-1111-1111-1111-111111111111', 'admin', 'test.event', 'test');
+insert into public.audit_log (club_id, actor_id, actor_role, action, entity)
+values ((select club_id from public.profiles where id = '11111111-1111-1111-1111-111111111111'), '11111111-1111-1111-1111-111111111111', 'admin', 'test.event', 'test');
 
 select test.rejects(
   $sql$ update public.audit_log set action = 'rewritten' where id = (select min(id) from public.audit_log) $sql$,
@@ -163,8 +163,8 @@ select id from public.inventory_items
 where type_id = (select id from public.inventory_types where name = 'Soft-top 8''0"')
   and status = 'available' order by asset_tag limit 1 \gset board_
 
-insert into public.rentals (id, client_id, item_id, start_date, end_date, status)
-values ('cccccccc-0000-0000-0000-000000000001',
+insert into public.rentals (id, club_id, client_id, item_id, start_date, end_date, status)
+values ('cccccccc-0000-0000-0000-000000000001', (select club_id from public.clients where profile_id = '44444444-4444-4444-4444-444444444444'),
         '44444444-4444-4444-4444-444444444444', :'board_id',
         current_date, current_date + 3, 'out');
 
@@ -177,8 +177,8 @@ select test.check(
   'the rental price is derived from the gear type and the number of days (4 x 12000)');
 
 select test.rejects(
-  format($sql$ insert into public.rentals (client_id, item_id, start_date, end_date, status)
-               values ('55555555-5555-5555-5555-555555555555', '%s',
+  format($sql$ insert into public.rentals (club_id, client_id, item_id, start_date, end_date, status)
+               values ((select club_id from public.clients where profile_id = '55555555-5555-5555-5555-555555555555'), '55555555-5555-5555-5555-555555555555', '%s',
                        current_date + 1, current_date + 2, 'reserved') $sql$, :'board_id'),
   'the same board cannot be rented to two people over overlapping dates');
 
@@ -190,8 +190,8 @@ select test.check(
   'booking the board back in returns it to stock');
 
 -- A board that comes back damaged goes to maintenance, not back on the rack.
-insert into public.rentals (id, client_id, item_id, start_date, end_date, status)
-values ('cccccccc-0000-0000-0000-000000000002',
+insert into public.rentals (id, club_id, client_id, item_id, start_date, end_date, status)
+values ('cccccccc-0000-0000-0000-000000000002', (select club_id from public.clients where profile_id = '44444444-4444-4444-4444-444444444444'),
         '44444444-4444-4444-4444-444444444444', :'board_id',
         current_date + 10, current_date + 11, 'out');
 

@@ -11,7 +11,8 @@
  * collapses every query result to `never`.
  */
 
-export type AppRole = 'admin' | 'instructor' | 'client'
+export type AppRole = 'admin' | 'instructor' | 'client' | 'super_admin'
+export type ClubStatus = 'provisioning' | 'active' | 'suspended' | 'archived'
 export type CategoryKind = 'lesson' | 'rental' | 'service'
 export type SlotStatus = 'open' | 'blocked' | 'cancelled'
 export type ReservationStatus =
@@ -27,6 +28,8 @@ export type SkillLevel = 'beginner' | 'intermediate' | 'advanced' | 'pro'
 export type Profile = {
   id: string
   role: AppRole
+  /** Null only for the platform operator. Fixed at creation; never moves. */
+  club_id: string | null
   full_name: string
   email: string | null
   phone: string | null
@@ -38,6 +41,7 @@ export type Profile = {
 }
 
 export type Instructor = {
+  club_id: string
   profile_id: string
   bio: string | null
   specialties: string[]
@@ -51,6 +55,7 @@ export type Instructor = {
 }
 
 export type Client = {
+  club_id: string
   profile_id: string
   level: SkillLevel
   birth_date: string | null
@@ -66,7 +71,7 @@ export type Client = {
 }
 
 export type ClubSettings = {
-  id: number
+  club_id: string
   club_name: string
   timezone: string
   currency: string
@@ -74,12 +79,21 @@ export type ClubSettings = {
   spot_latitude: number
   spot_longitude: number
   contact_phone: string | null
+  /** Club inbox that receives a copy of every signed document. */
+  contact_email: string | null
   cancellation_window_hours: number
   tips_enabled: boolean
+  /** From the Google Maps listing; the club may correct them. */
+  address: string | null
+  website: string | null
+  /** One line per day as the listing prints them. */
+  opening_hours: string[]
+  place_id: string | null
   updated_at: string
 }
 
 export type Category = {
+  club_id: string
   id: string
   name: string
   slug: string
@@ -92,6 +106,7 @@ export type Category = {
 }
 
 export type Service = {
+  club_id: string
   id: string
   category_id: string
   name: string
@@ -107,6 +122,7 @@ export type Service = {
 }
 
 export type TimeSlot = {
+  club_id: string
   id: string
   service_id: string
   starts_at: string
@@ -124,6 +140,7 @@ export type TimeSlot = {
 }
 
 export type TimeSlotInstructor = {
+  club_id: string
   slot_id: string
   instructor_id: string
   is_lead: boolean
@@ -132,6 +149,7 @@ export type TimeSlotInstructor = {
 }
 
 export type Reservation = {
+  club_id: string
   id: string
   slot_id: string
   client_id: string
@@ -152,6 +170,7 @@ export type Reservation = {
 }
 
 export type PackageTemplate = {
+  club_id: string
   id: string
   category_id: string | null
   name: string
@@ -166,6 +185,7 @@ export type PackageTemplate = {
 }
 
 export type ClientPackage = {
+  club_id: string
   id: string
   client_id: string
   template_id: string | null
@@ -187,6 +207,7 @@ export type ClientPackage = {
 }
 
 export type PackageLedgerEntry = {
+  club_id: string
   id: number
   client_package_id: string
   reservation_id: string | null
@@ -198,6 +219,7 @@ export type PackageLedgerEntry = {
 }
 
 export type InventoryType = {
+  club_id: string
   id: string
   category_id: string | null
   name: string
@@ -213,6 +235,7 @@ export type InventoryType = {
 }
 
 export type InventoryItem = {
+  club_id: string
   id: string
   type_id: string
   asset_tag: string
@@ -225,6 +248,7 @@ export type InventoryItem = {
 }
 
 export type Rental = {
+  club_id: string
   id: string
   client_id: string
   item_id: string
@@ -245,6 +269,7 @@ export type Rental = {
 }
 
 export type Payment = {
+  club_id: string
   id: string
   client_id: string
   kind: PaymentKind
@@ -258,11 +283,16 @@ export type Payment = {
   failure_reason: string | null
   succeeded_at: string | null
   refunded_at: string | null
+  /** The club's payout account the charge went through. */
+  account_id: string | null
+  /** The platform's share, fixed at checkout time. */
+  platform_fee_cents: number
   created_at: string
   updated_at: string
 }
 
 export type Tip = {
+  club_id: string
   id: string
   client_id: string
   instructor_id: string
@@ -275,6 +305,7 @@ export type Tip = {
 }
 
 export type InstructorReview = {
+  club_id: string
   id: string
   client_id: string
   instructor_id: string
@@ -286,6 +317,7 @@ export type InstructorReview = {
 }
 
 export type SessionReview = {
+  club_id: string
   id: string
   slot_id: string
   client_id: string
@@ -300,6 +332,7 @@ export type SessionReview = {
 }
 
 export type RegistrationInvite = {
+  club_id: string
   id: string
   token_hash: string
   role: AppRole
@@ -315,7 +348,27 @@ export type RegistrationInvite = {
   created_at: string
 }
 
+export type DocumentSignature = {
+  club_id: string
+  id: number
+  client_id: string
+  document_key: 'waiver' | 'rental_agreement'
+  /** Version string of the wording that was agreed to. */
+  version: string
+  signed_at: string
+  /** Standing permission; only meaningful for the waiver. */
+  media_consent: boolean | null
+  /** sha256 of the emailed PDF — never the PDF itself. */
+  document_sha256: string | null
+  delivered_at: string | null
+  delivery_error: string | null
+  ip: string | null
+  user_agent: string | null
+  created_at: string
+}
+
 export type AuditLogEntry = {
+  club_id: string
   id: number
   actor_id: string | null
   actor_role: AppRole | null
@@ -330,6 +383,7 @@ export type AuditLogEntry = {
 }
 
 export type PriceHistoryEntry = {
+  club_id: string
   id: number
   entity_type: 'service' | 'inventory_type' | 'package_template' | 'time_slot'
   entity_id: string
@@ -542,6 +596,193 @@ export type InventoryOverviewRow = {
   retired_units: number
 }
 
+/* ------------------------------------------------------------- platform */
+
+export type Club = {
+  id: string
+  slug: string
+  name: string
+  maps_url: string | null
+  admin_email: string
+  status: ClubStatus
+  suspended_at: string | null
+  suspended_reason: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type PlatformAuditLogEntry = {
+  id: number
+  actor_id: string | null
+  action: string
+  club_id: string | null
+  detail: Record<string, unknown> | null
+  ip: string | null
+  created_at: string
+}
+
+export type SupportConversation = {
+  id: string
+  club_id: string
+  opened_by: string
+  subject: string
+  kind: 'bot' | 'human'
+  status: 'open' | 'awaiting_platform' | 'awaiting_club' | 'closed'
+  category: 'bug' | 'question' | 'billing' | 'feature' | 'urgent' | 'other' | null
+  severity: 'low' | 'medium' | 'high' | 'critical' | null
+  report: Record<string, unknown> | null
+  last_message_at: string
+  closed_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type SupportMessage = {
+  id: number
+  conversation_id: string
+  club_id: string
+  sender_role: 'admin' | 'super_admin' | 'bot'
+  sender_id: string | null
+  body: string
+  created_at: string
+}
+
+/** Counts only — the operator never sees a row of club data. */
+export type ClubStatisticsRow = {
+  club_id: string
+  slug: string
+  name: string
+  status: ClubStatus
+  created_at: string
+  members: number
+  instructors: number
+  admins: number
+  sessions_total: number
+  sessions_upcoming: number
+  bookings_pending: number
+  bookings_approved: number
+  bookings_completed: number
+  rentals_open: number
+  packages_active: number
+  reviews_public: number
+  documents_signed: number
+  documents_undelivered: number
+  payments_failed: number
+  last_activity_at: string | null
+}
+
+export type ClubActivityRow = {
+  club_id: string
+  day: string
+  operation: string
+  action: string
+  events: number
+}
+
+export type ClubPublicProfile = {
+  club_id: string
+  slug: string
+  name: string
+  spot_name: string | null
+  timezone: string | null
+  spot_latitude: number | null
+  spot_longitude: number | null
+  contact_phone: string | null
+  maps_url: string | null
+  status: ClubStatus
+  address: string | null
+  website: string | null
+  opening_hours: string[]
+}
+
+export type PlanKey = 'beach' | 'ocean' | 'surfing'
+export type FinancialDashboard = 'none' | 'internal' | 'full'
+export type ReportPeriod = 'monthly' | 'quarterly' | 'yearly'
+
+export type Plan = {
+  key: PlanKey
+  name: string
+  tagline: string | null
+  price_cents: number
+  currency: string
+  sort_order: number
+  /** null = unlimited */
+  max_instructors: number | null
+  max_new_clients_per_month: number | null
+  max_payments_per_month: number | null
+  wallet_payments: boolean
+  reports: ReportPeriod[]
+  financial_dashboard: FinancialDashboard
+  is_active: boolean
+  created_at: string
+}
+
+export type SubscriptionStatus = 'incomplete' | 'active' | 'past_due' | 'canceled'
+
+export type ClubSubscription = {
+  id: string
+  club_id: string
+  plan_key: PlanKey
+  status: SubscriptionStatus
+  provider: 'stripe' | 'mock'
+  provider_customer_id: string | null
+  provider_subscription_id: string | null
+  provider_checkout_ref: string | null
+  current_period_start: string | null
+  current_period_end: string | null
+  canceled_at: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type PayoutAccountStatus = 'onboarding' | 'active' | 'restricted' | 'disabled'
+
+/** The club's payout account at the provider. An id and its state — never a credential. */
+export type ClubPaymentAccount = {
+  club_id: string
+  provider: 'stripe_connect' | 'mock'
+  account_id: string
+  country: string | null
+  default_currency: string | null
+  charges_enabled: boolean
+  payouts_enabled: boolean
+  details_submitted: boolean
+  requirements_due: string[]
+  status: PayoutAccountStatus
+  platform_fee_bps: number
+  created_at: string
+  updated_at: string
+}
+
+export type LegalDocumentKey = 'terms' | 'privacy' | 'club_agreement' | 'instructor_agreement'
+
+export type LegalAcceptance = {
+  id: number
+  club_id: string
+  user_id: string
+  document_key: LegalDocumentKey
+  version: string
+  accepted_at: string
+  ip: string | null
+  user_agent: string | null
+}
+
+/** Per club, per month — sums and counts only. */
+export type PlatformClubFinanceRow = {
+  club_id: string
+  month: string
+  currency: string
+  payments_succeeded: number
+  payments_failed: number
+  payments_refunded: number
+  gross_cents: number
+  refunded_cents: number
+  platform_fee_cents: number
+  tips_cents: number
+}
+
 /* ------------------------------------------------- supabase-js Database map */
 
 type Table<Row> = { Row: Row; Insert: Partial<Row>; Update: Partial<Row>; Relationships: [] }
@@ -572,6 +813,15 @@ export type Database = {
       registration_invites: Table<RegistrationInvite>
       audit_log: Table<AuditLogEntry>
       price_history: Table<PriceHistoryEntry>
+      document_signatures: Table<DocumentSignature>
+      clubs: Table<Club>
+      platform_audit_log: Table<PlatformAuditLogEntry>
+      support_conversations: Table<SupportConversation>
+      support_messages: Table<SupportMessage>
+      plans: Table<Plan>
+      club_subscriptions: Table<ClubSubscription>
+      club_payment_accounts: Table<ClubPaymentAccount>
+      legal_acceptances: Table<LegalAcceptance>
     }
     Views: {
       instructor_directory: View<InstructorDirectoryRow>
@@ -584,6 +834,9 @@ export type Database = {
       instructor_roster: View<InstructorRosterRow>
       staff_reservation_queue: View<StaffReservationQueueRow>
       inventory_overview: View<InventoryOverviewRow>
+      club_statistics: View<ClubStatisticsRow>
+      club_activity: View<ClubActivityRow>
+      platform_club_finance: View<PlatformClubFinanceRow>
     }
     Functions: {
       set_inventory_quantity: {
@@ -608,9 +861,26 @@ export type Database = {
         Returns: ClientPackage
       }
       expire_stale_packages: { Args: Record<string, never>; Returns: number }
+      provision_club: {
+        Args: {
+          p_name: string
+          p_slug: string
+          p_maps_url: string
+          p_admin_email: string
+          p_timezone?: string
+          p_details?: Record<string, unknown>
+        }
+        Returns: Club
+      }
+      club_public_profile: { Args: { p_slug: string }; Returns: ClubPublicProfile[] }
+      club_plan_usage: {
+        Args: Record<string, never>
+        Returns: { instructors: number; new_clients_this_month: number; payments_this_month: number }[]
+      }
     }
     Enums: {
       app_role: AppRole
+      club_status: ClubStatus
       category_kind: CategoryKind
       slot_status: SlotStatus
       reservation_status: ReservationStatus
